@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="BehaviorTree">
+  <BehaviorTree ID="BehaviorTree">
+    <Sequence>
+      <!-- Load one deterministic preset. Coordinates remain exclusively in the
+           UC field configuration and are never embedded in this tree. -->
+      <LoadStrategyPreset active_preset="{active_preset}"
+                          supply_waypoint="{supply_waypoint}"
+                          fallback_waypoint="{fallback_waypoint}"
+                          hold_waypoint="{hold_waypoint}"
+                          spin_waypoint="{spin_waypoint}"
+                          hp_retreat="{hp_retreat}"
+                          hp_recover="{hp_recover}"
+                          damage_memory_s="{damage_memory_s}"
+                          navigation_timeout_ms="{navigation_timeout_ms}"/>
+
+      <ResolveFieldPose waypoint="{supply_waypoint}"
+                        goal_pose="{supply_pose}"
+                        frame_id="{navigation_frame}"/>
+      <ResolveFieldPose waypoint="{fallback_waypoint}"
+                        goal_pose="{fallback_pose}"/>
+      <ResolveFieldPose waypoint="{hold_waypoint}"
+                        goal_pose="{hold_pose}"/>
+      <ResolveFieldPose waypoint="{spin_waypoint}"
+                        goal_pose="{spin_pose}"/>
+
+      <!-- Subscriber actions stay at the top of the reactive section so the
+           safety branches can preempt a running patrol navigation action. -->
+      <ReactiveSequence>
+        <SubGameStatus topic_name="/feedback_game_progress"
+                       game_progress="{game_progress}"/>
+        <SubRobotStatus topic_name="/feedback_robot_hp"
+                        feedback_robot_hp="{feedback_robot_hp}"/>
+        <GetCurrentLocation target_frame="{navigation_frame}"
+                            base_frame="base_link"
+                            current_location="{current_location}"/>
+
+        <WhileDoElse>
+          <ForceSuccess>
+            <IsGameTime message="{game_progress}" game_progress="4"/>
+          </ForceSuccess>
+
+          <ReactiveSequence>
+            <RateController hz="10">
+              <IfThenElse>
+                <IsNearGoal current_location="{current_location}"
+                            goal_pose="{spin_pose}"
+                            distance_threshold="1.5"/>
+                <SendSpin is_spin="true"
+                          spin_velocity="4.0"
+                          topic_name="/cmd_vel_wz"/>
+                <SendSpin is_spin="false"
+                          topic_name="/cmd_vel_wz"/>
+              </IfThenElse>
+            </RateController>
+
+            <!-- Priority 1: low HP. IsRetreat owns the hysteresis state and
+                 keeps this branch active until hp_threshold_recover. -->
+            <ReactiveFallback>
+              <Sequence>
+                <IsRetreat message="{feedback_robot_hp}"
+                           hp_threshold_retreat="{hp_retreat}"
+                           hp_threshold_recover="{hp_recover}"/>
+              <RetryUntilSuccessful num_attempts="2">
+                <Timeout msec="{navigation_timeout_ms}">
+                  <SendGoal name="Supply"
+                            goal_pose="{supply_pose}"
+                            action_name="/navigate_to_pose"
+                            move="false"/>
+                </Timeout>
+              </RetryUntilSuccessful>
+              </Sequence>
+
+              <!-- Priority 2: recent damage. A failed fallback goal degrades
+                   to the hold pose instead of resuming an attack route. -->
+              <Sequence>
+                <IsHPdeduction message="{feedback_robot_hp}"
+                               damage_memory_s="{damage_memory_s}"/>
+                <Fallback>
+                <RetryUntilSuccessful num_attempts="2">
+                  <Timeout msec="{navigation_timeout_ms}">
+                    <SendGoal name="DamageFallback"
+                              goal_pose="{fallback_pose}"
+                              action_name="/navigate_to_pose"
+                              move="false"/>
+                  </Timeout>
+                </RetryUntilSuccessful>
+                  <SendGoal name="DamageHold"
+                            goal_pose="{hold_pose}"
+                            action_name="/navigate_to_pose"
+                            move="false"/>
+                </Fallback>
+              </Sequence>
+
+              <!-- Priority 3: deterministic preset patrol. Select the next UC
+                   semantic point only after the previous cycle completes. -->
+              <Repeat num_cycles="-1">
+                <Sequence>
+                  <NextPatrolWaypoint preset="{active_preset}"
+                                      waypoint="{patrol_waypoint}"
+                                      route_index="{route_index}"/>
+                  <ResolveFieldPose waypoint="{patrol_waypoint}"
+                                    goal_pose="{patrol_pose}"/>
+                  <Fallback>
+                    <RetryUntilSuccessful num_attempts="2">
+                      <Timeout msec="{navigation_timeout_ms}">
+                        <SendGoal name="Patrol"
+                                  goal_pose="{patrol_pose}"
+                                  action_name="/navigate_to_pose"
+                                  move="false"/>
+                      </Timeout>
+                    </RetryUntilSuccessful>
+                    <SendGoal name="PatrolFallback"
+                              goal_pose="{fallback_pose}"
+                              action_name="/navigate_to_pose"
+                              move="false"/>
+                  </Fallback>
+                </Sequence>
+              </Repeat>
+            </ReactiveFallback>
+          </ReactiveSequence>
+
+          <!-- Outside the active game phase the tree intentionally sends no
+               navigation goal. The chassis command mux must own final stop. -->
+          <AlwaysSuccess/>
+        </WhileDoElse>
+      </ReactiveSequence>
+    </Sequence>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="LoadStrategyPreset" editable="true">
+      <output_port name="active_preset" default="{active_preset}"/>
+      <output_port name="supply_waypoint" default="{supply_waypoint}"/>
+      <output_port name="fallback_waypoint" default="{fallback_waypoint}"/>
+      <output_port name="hold_waypoint" default="{hold_waypoint}"/>
+      <output_port name="spin_waypoint" default="{spin_waypoint}"/>
+      <output_port name="hp_retreat" default="{hp_retreat}"/>
+      <output_port name="hp_recover" default="{hp_recover}"/>
+      <output_port name="damage_memory_s" default="{damage_memory_s}"/>
+      <output_port name="navigation_timeout_ms" default="{navigation_timeout_ms}"/>
+      <output_port name="navigation_retries" default="2"/>
+    </Action>
+    <Action ID="NextPatrolWaypoint" editable="true">
+      <input_port name="preset" default="{active_preset}"/>
+      <output_port name="waypoint" default="{patrol_waypoint}"/>
+      <output_port name="route_index" default="{route_index}"/>
+    </Action>
+    <Action ID="ResolveFieldPose" editable="true">
+      <input_port name="waypoint"/>
+      <output_port name="goal_pose"/>
+      <output_port name="frame_id" default="{navigation_frame}"/>
+    </Action>
+    <Action ID="SendGoal" editable="true">
+      <input_port name="goal_pose"/>
+      <input_port name="action_name" default="/navigate_to_pose"/>
+      <input_port name="frame_id" default="map"/>
+      <input_port name="move" default="false"/>
+      <input_port name="length" default="0.0"/>
+    </Action>
+    <Action ID="GetCurrentLocation" editable="true">
+      <input_port name="target_frame" default="map"/>
+      <input_port name="base_frame" default="base_link"/>
+      <output_port name="current_location"/>
+    </Action>
+    <Action ID="SubGameStatus" editable="true">
+      <input_port name="topic_name" default="/feedback_game_progress"/>
+      <output_port name="game_progress"/>
+    </Action>
+    <Action ID="SubRobotStatus" editable="true">
+      <input_port name="topic_name" default="/feedback_robot_hp"/>
+      <output_port name="feedback_robot_hp"/>
+    </Action>
+    <Action ID="SendSpin" editable="true">
+      <input_port name="is_spin" default="false"/>
+      <input_port name="spin_velocity" default="4.0"/>
+      <input_port name="topic_name" default="/cmd_vel_wz"/>
+    </Action>
+    <Condition ID="IsGameTime" editable="true">
+      <input_port name="message"/>
+      <input_port name="game_progress" default="4"/>
+    </Condition>
+    <Condition ID="IsRetreat" editable="true">
+      <input_port name="message"/>
+      <input_port name="hp_threshold_retreat" default="110"/>
+      <input_port name="hp_threshold_recover" default="400"/>
+    </Condition>
+    <Condition ID="IsHPdeduction" editable="true">
+      <input_port name="message"/>
+      <input_port name="damage_memory_s" default="3.0"/>
+    </Condition>
+    <Condition ID="IsNearGoal" editable="true">
+      <input_port name="current_location"/>
+      <input_port name="goal_pose"/>
+      <input_port name="distance_threshold" default="1.5"/>
+    </Condition>
+  </TreeNodesModel>
+</root>

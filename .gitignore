@@ -1,0 +1,23 @@
+# ROS/colcon generated artifacts
+build/
+install/
+log/
+**/build/
+**/install/
+**/log/
+
+# Runtime output
+*.log
+nohup.out
+0330log
+
+# Editor and local agent state
+.vscode/
+.agents/
+.codex/
+
+# Python and OS cache
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db

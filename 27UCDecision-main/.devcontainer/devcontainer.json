@@ -1,0 +1,28 @@
+{
+	"name": "26_decision",
+	"image": "bourne/26_decision:1.0.0",
+	"build": {
+		"dockerfile": "dockerfile"
+	},
+	"runArgs": [
+	  "--init",
+	  "--privileged",
+	  "--env=DISPLAY=${localEnv:DISPLAY}",
+	  "--env=QT_X11_NO_MITSHM=1",
+	  "--volume=/tmp/.X11-unix:/tmp/.X11-unix",
+	  "--network=host"
+	],
+	"customizations": {
+	  "vscode": {
+			"extensions": [
+				"llvm-vs-code-extensions.vscode-clangd",
+				"vadimcn.vscode-lldb",
+				"xaver.clang-format",
+				"ms-python.python",
+				"ms-iot.vscode-ros",
+				"ms-vscode.cmake-tools",
+				"usernamehw.errorlens"
+			]
+	  }
+	}
+}

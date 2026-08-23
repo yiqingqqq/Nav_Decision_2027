@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4"
+      main_tree_to_execute="BehaviorTree">
+  <BehaviorTree ID="BehaviorTree">
+    <ReactiveSequence>
+      <!-- 更新比赛状态和血量 -->
+      <SubGameStatus topic_name="/feedback_game_progress"
+                     game_progress="{game_progress}"/>
+      <SubRobotStatus topic_name="/feedback_ally_7_hp"
+                      ally_7_robot_hp="{ally_7_robot_hp}"/>
+
+      <!-- 持续获取当前位置 -->
+      <GetCurrentLocation name="GetLocation"
+                          current_location="{current_location}"/>
+
+      <!-- 全局控制小陀螺：距离中心 < 3.0 时转速=5，否则转速=1 -->
+      <RateController hz="1">
+        <IfThenElse>
+          <IsNearGoal name="CheckNearCenter"
+                      current_location="{current_location}"
+                      goal_pose="2.832;-1.907;0;0;0;0;1"
+                      distance_threshold="1.5"/>
+          <SendSpin name="SpinNear"
+                    is_spin="true"
+                    spin_velocity="3.0"
+                    topic_name="/cmd_vel_wz"/>
+          <SendSpin name="SpinFar"
+                    is_spin="true"
+                    spin_velocity="1.0"
+                    topic_name="/cmd_vel_wz"/>
+        </IfThenElse>
+      </RateController>
+
+      <!-- 比赛开始后执行撤退/进攻逻辑，否则回家 -->
+      <WhileDoElse>
+        <IsGameTime name="IsGameStart"
+                    message="{game_progress}"
+                    game_progress="4"/>
+
+        <ReactiveSequence>
+          <WhileDoElse>
+            <IsRetreat name="NeedRetreat"
+                       message="{ally_7_robot_hp}"
+                       hp_threshold_retreat="110"/>
+
+            <!-- 撤退分支 -->
+            <RateController hz="1">
+              <SendGoal name="SupplyArea"
+                        goal_pose="0;0;0;0;0;0;1"
+                        action_name="/navigate_to_pose"/>
+            </RateController>
+
+            <!-- 进攻分支 -->
+            <Sequence>
+              <Sleep msec="3000"/>
+              <RateController hz="1">
+                <SendGoal name="OccupyArea"
+                          goal_pose="2.832;-1.907;0;0;0;0;1"
+                          action_name="/navigate_to_pose"/>
+              </RateController>
+            </Sequence>
+          </WhileDoElse>
+        </ReactiveSequence>
+
+        <!-- 非比赛时间 -->
+        <RateController hz="1">
+          <SendGoal name="Home"
+                    goal_pose="0;0;0;0;0;0;1"
+                    action_name="/navigate_to_pose"/>
+        </RateController>
+      </WhileDoElse>
+    </ReactiveSequence>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="Sleep" editable="true">
+      <input_port name="msec" default="1000"/>
+    </Action>
+
+    <Condition ID="IsRetreat" editable="true">
+      <input_port name="message" default="{ally_7_robot_hp}"/>
+      <input_port name="hp_threshold_retreat" default="110"/>
+    </Condition>
+
+    <Condition ID="IsGameTime" editable="true">
+      <input_port name="message" default="{game_progress}"/>
+      <input_port name="game_progress" default="4"/>
+    </Condition>
+
+    <Action ID="SendGoal" editable="true">
+      <input_port name="goal_pose" default="0;0;0;0;0;0;1"/>
+      <input_port name="action_name" default="/navigate_to_pose"/>
+    </Action>
+
+    <Action ID="GetCurrentLocation" editable="true">
+      <output_port name="current_location" default="{current_location}"/>
+    </Action>
+
+    <Condition ID="IsNearGoal" editable="true">
+      <input_port name="current_location" default="{current_location}"/>
+      <input_port name="goal_pose" default="0;0;0;0;0;0;1"/>
+      <input_port name="distance_threshold" default="3.0"/>
+    </Condition>
+
+    <Action ID="SendSpin" editable="true">
+      <input_port name="is_spin" default="true"/>
+      <input_port name="spin_velocity" default="5.0"/>
+      <input_port name="topic_name" default="/cmd_vel_wz"/>
+    </Action>
+
+    <Action ID="SubGameStatus" editable="true">
+      <input_port name="topic_name" default="/feedback_game_progress"/>
+      <output_port name="game_progress" default="{game_progress}"/>
+    </Action>
+
+    <Action ID="SubRobotStatus" editable="true">
+      <input_port name="topic_name" default="/feedback_robot_hp"/>
+      <output_port name="ally_7_robot_hp" default="{ally_7_robot_hp}"/>
+    </Action>
+
+    <Decorator ID="IfThenElse" editable="true"/>
+    <Decorator ID="WhileDoElse" editable="true"/>
+
+    <Decorator ID="RateController" editable="true">
+      <input_port name="hz" default="1.0"/>
+    </Decorator>
+  </TreeNodesModel>
+</root>

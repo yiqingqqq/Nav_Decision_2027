@@ -1,0 +1,7 @@
+rm_serial_driver:
+  ros__parameters:
+    port: "/dev/tty_shaobing"
+    baudrate: 115200
+    vx_limit: 15.0
+    vy_limit: 15.0
+    wz_limit: 15.0

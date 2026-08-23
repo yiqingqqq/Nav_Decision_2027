@@ -1,0 +1,68 @@
+rm_behavior_tree:
+  ros__parameters:
+    strategy:
+      schema_version: 1
+
+      # This file describes tactical topology, not surveyed navigation poses.
+      # Every name below must resolve through rmuc_2026_field.yaml. Until a real
+      # occupancy map is built and field_map.calibrated is true, these routes
+      # are for logic tests and simulation only.
+      default_preset: "balanced"
+      active_preset: "balanced"
+
+      safety:
+        hp_retreat: 110
+        hp_recover: 400
+        damage_memory_s: 3.0
+        state_timeout_s: 0.5
+        navigation_timeout_s: 12.0
+        navigation_retries: 2
+        require_calibrated_map_for_hardware: true
+
+      presets:
+        defense:
+          description: "Hold the home/outpost side and minimize deep traversal."
+          patrol_route:
+            - "home_defense"
+            - "outpost_defense"
+          hold_waypoint: "home_defense"
+          fallback_waypoint: "home_defense"
+          supply_waypoint: "supply"
+          spin_near_waypoint: "outpost_defense"
+          allow_attack_staging: false
+
+        balanced:
+          description: "Default UC route between friendly patrol and center control points."
+          patrol_route:
+            - "patrol_lower"
+            - "center_lower"
+            - "patrol_upper"
+            - "center_upper"
+          hold_waypoint: "center_lower"
+          fallback_waypoint: "fallback"
+          supply_waypoint: "supply"
+          spin_near_waypoint: "center_lower"
+          allow_attack_staging: false
+
+        aggressive:
+          description: "Advance from center control to the attack staging area."
+          patrol_route:
+            - "center_lower"
+            - "attack_staging"
+            - "center_upper"
+          hold_waypoint: "attack_staging"
+          fallback_waypoint: "fallback"
+          supply_waypoint: "supply"
+          spin_near_waypoint: "attack_staging"
+          allow_attack_staging: true
+
+      # Deterministic transitions shared by every preset. Safety transitions
+      # always take precedence over preset patrol behavior.
+      transitions:
+        game_not_running: "hold"
+        state_stale: "hold"
+        localization_invalid: "hold"
+        low_hp: "supply"
+        recently_damaged: "fallback"
+        navigation_failed: "fallback"
+        normal: "patrol"

@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root BTCPP_format="4" main_tree_to_execute="BehaviorTree">
+  <!--
+    RMUL 2027 tunnel mode, based on v2.xml.
+    Red-side-only strategy. Tunnel direction is still selected from the
+    current position, but no referee-system robot ID is required.
+  -->
+  <BehaviorTree ID="BehaviorTree">
+    <ReactiveSequence>
+      <SubGameStatus topic_name="/feedback_game_progress"
+                     game_progress="{game_progress}"/>
+      <SubRobotStatus topic_name="/feedback_robot_hp"
+                      feedback_robot_hp="{feedback_robot_hp}"/>
+      <GetCurrentLocation name="GetLocation"
+                          current_location="{current_location}"/>
+
+      <WhileDoElse>
+        <IsGameTime name="IsGameStart"
+                    message="{game_progress}"
+                    game_progress="4"/>
+
+        <ReactiveSequence>
+          <NonBlockingRateController hz="10">
+            <IfThenElse>
+              <SubTree ID="IsNearCenterByAlliance"
+                       _autoremap="true"/>
+              <SendSpin name="SpinNear"
+                        is_spin="true"
+                        spin_velocity="4.5"
+                        topic_name="/cmd_vel_wz"/>
+              <SendSpin name="SpinFar"
+                        is_spin="false"
+                        topic_name="/cmd_vel_wz"/>
+            </IfThenElse>
+          </NonBlockingRateController>
+
+          <WhileDoElse>
+            <IsRetreat name="NeedRetreat"
+                       message="{feedback_robot_hp}"
+                       hp_threshold_retreat="110"
+                       hp_threshold_recover="400"/>
+
+            <SubTree ID="TraverseTunnelInbound"
+                     _autoremap="true"/>
+
+            <Sequence>
+              <RunOnceUntilHalted>
+                <SubTree ID="TraverseTunnelOutbound"
+                         _autoremap="true"/>
+              </RunOnceUntilHalted>
+
+              <!-- The remainder preserves v2's deduction/Attack/Back/Center policy. -->
+              <ReactiveFallback>
+                <Sequence>
+                  <IsHPdeduction name="CheckDeduction"
+                                 message="{feedback_robot_hp}"/>
+                  <SubTree ID="NavigateByAlliance"
+                           red_goal="0.0;1.0;0;0;0;0;1"
+                           blue_goal="-5.0;4.0;0;0;0;0;1"
+                           move="true"
+                           length="1.0"
+                           _autoremap="true"/>
+                </Sequence>
+
+                <Sequence>
+                  <Fallback>
+                    <Timeout msec="5000">
+                      <SubTree ID="NavigateByAlliance"
+                               red_goal="-1.0;0.75;0;0;0;0;1"
+                               blue_goal="-6.0;3.75;0;0;0;0;1"
+                               move="false"
+                               length="1.0"
+                               _autoremap="true"/>
+                    </Timeout>
+                    <SubTree ID="NavigateByAlliance"
+                             red_goal="0.0;0.0;0;0;0;0;1"
+                             blue_goal="-5.0;3.0;0;0;0;0;1"
+                             move="true"
+                             length="1.0"
+                             _autoremap="true"/>
+                  </Fallback>
+                </Sequence>
+              </ReactiveFallback>
+            </Sequence>
+          </WhileDoElse>
+        </ReactiveSequence>
+        <AlwaysSuccess/>
+      </WhileDoElse>
+    </ReactiveSequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="TraverseTunnelOutbound">
+    <!-- Entry and exit straddle the boundary-side gap in the RMUL2027 STL. -->
+    <Fallback>
+      <Sequence>
+        <SelectTunnelDirection current_location="{current_location}"
+                               robot_id="0"
+                               entry_goal="{tunnel_entry}"
+                               inside_goal="{tunnel_inside}"
+                               exit_goal="{tunnel_exit}"/>
+        <RetryUntilSuccessful num_attempts="2">
+          <Sequence>
+            <SelectController controller_id="FollowPath"
+                              topic_name="/controller_selector"/>
+            <Timeout msec="7000">
+              <SendGoal name="TunnelEntry"
+                        goal_pose="{tunnel_entry}"
+                        action_name="/navigate_to_pose"
+                        move="false"
+                        length="1.0"/>
+            </Timeout>
+            <SelectController controller_id="TunnelController"
+                              topic_name="/controller_selector"/>
+            <Timeout msec="20000">
+              <SendGoal name="TunnelInside"
+                        goal_pose="{tunnel_inside}"
+                        action_name="/navigate_to_pose"
+                        move="false"
+                        length="1.0"/>
+            </Timeout>
+            <Timeout msec="20000">
+              <SendGoal name="TunnelExit"
+                        goal_pose="{tunnel_exit}"
+                        action_name="/navigate_to_pose"
+                        move="false"
+                        length="1.0"/>
+            </Timeout>
+            <SelectController controller_id="FollowPath"
+                              topic_name="/controller_selector"/>
+          </Sequence>
+        </RetryUntilSuccessful>
+      </Sequence>
+      <!-- Tunnel failure must not permanently block the original attack policy. -->
+      <SelectController controller_id="FollowPath"
+                        topic_name="/controller_selector"/>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="TraverseTunnelInbound">
+    <!-- Nav2 selects the shortest collision-free route; it may use the tunnel or go direct. -->
+    <Fallback>
+      <RetryUntilSuccessful num_attempts="2">
+        <Timeout msec="10000">
+          <SubTree ID="NavigateByAlliance"
+                   red_goal="5.25;-3.0;0;0;0;0;1"
+                   blue_goal="0.25;0.0;0;0;0;0;1"
+                   move="false"
+                   length="1.0"
+                   _autoremap="true"/>
+        </Timeout>
+      </RetryUntilSuccessful>
+      <!-- Final fallback keeps the original direct Supply command active. -->
+      <SubTree ID="NavigateByAlliance"
+               red_goal="5.25;-3.0;0;0;0;0;1"
+               blue_goal="0.25;0.0;0;0;0;0;1"
+               move="false"
+               length="1.0"
+               _autoremap="true"/>
+    </Fallback>
+  </BehaviorTree>
+
+  <BehaviorTree ID="NavigateByAlliance">
+    <SendGoal name="AllianceGoalRed"
+              goal_pose="{red_goal}"
+              action_name="/navigate_to_pose"
+              move="{move}"
+              length="{length}"/>
+  </BehaviorTree>
+
+  <BehaviorTree ID="IsNearCenterByAlliance">
+    <IsNearGoal name="CheckNearCenterRed"
+                current_location="{current_location}"
+                goal_pose="0.0;0.0;0;0;0;0;1"
+                distance_threshold="2.0"/>
+  </BehaviorTree>
+
+  <TreeNodesModel>
+    <Action ID="SelectController">
+      <input_port name="controller_id"/>
+      <input_port name="topic_name"/>
+    </Action>
+    <Action ID="SelectTunnelDirection">
+      <input_port name="current_location"/>
+      <input_port name="robot_id"/>
+      <output_port name="entry_goal"/>
+      <output_port name="inside_goal"/>
+      <output_port name="exit_goal"/>
+    </Action>
+    <Condition ID="IsOnOwnSide">
+      <input_port name="current_location"/>
+      <input_port name="robot_id"/>
+      <input_port name="red_exit_x" default="3.5"/>
+      <input_port name="blue_exit_x" default="-3.5"/>
+    </Condition>
+    <Decorator ID="NonBlockingRateController">
+      <input_port name="hz" default="10"/>
+    </Decorator>
+    <Decorator ID="RunOnceUntilHalted"/>
+  </TreeNodesModel>
+</root>

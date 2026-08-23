@@ -1,0 +1,64 @@
+rm_behavior_tree:
+  ros__parameters:
+    # Official RMUC field coordinates:
+    # origin: lower-left corner in the official top view (red side is on the left)
+    # +x: red side -> blue side, +y: bottom -> top, unit: metre
+    field_map:
+      schema_version: 1
+      source: "RMUC 2026 rulebook V1.4.0 and official V2.0.0 STEP model"
+      length: 28.0
+      width: 15.0
+      frame_id: "map"
+      alliance: "red"
+      mirror_for_blue: true
+
+      # Set true only after checking every active waypoint on the real Nav2 map.
+      calibrated: false
+
+      # Rigid transform from official field coordinates to the Nav2 map frame.
+      # map_xy = translation + R(yaw) * field_xy
+      field_to_map:
+        x: 0.0
+        y: 0.0
+        yaw: 0.0
+
+      # Nominal red-side waypoints read from the official top view. These are
+      # commissioning seeds, not a replacement for a surveyed/SLAM map.
+      # Blue-side poses are generated automatically by centre symmetry.
+      waypoints:
+        supply:
+          x: 1.80
+          y: 2.10
+          yaw: 0.0
+        home_defense:
+          x: 3.80
+          y: 7.50
+          yaw: 0.0
+        outpost_defense:
+          x: 5.40
+          y: 5.40
+          yaw: 0.0
+        patrol_lower:
+          x: 9.20
+          y: 4.20
+          yaw: 0.0
+        patrol_upper:
+          x: 9.20
+          y: 10.80
+          yaw: 0.0
+        center_lower:
+          x: 11.20
+          y: 4.60
+          yaw: 0.0
+        center_upper:
+          x: 11.20
+          y: 10.40
+          yaw: 0.0
+        attack_staging:
+          x: 12.00
+          y: 5.20
+          yaw: 0.0
+        fallback:
+          x: 8.20
+          y: 3.20
+          yaw: 0.0

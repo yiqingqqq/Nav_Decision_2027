@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../26AutoAim"
+		},
+		{
+			"path": "../RM-Decision"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.v": "verilog",
+			"cstddef": "cpp",
+			"iostream": "cpp"
+		}
+	}
+}
