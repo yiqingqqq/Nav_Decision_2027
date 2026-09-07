@@ -403,6 +403,9 @@ private:
   rclcpp::Time time_last_oscillation_; //!< Store at which time stamp the last oscillation was detected
   RotType last_preferred_rotdir_; //!< Store recent preferred turning direction
   geometry_msgs::msg::Twist last_cmd_; //!< Store the last control command generated in computeVelocityCommands()
+  double terminal_yaw_kp_{1.5}; //!< Proportional gain for final in-place yaw alignment
+  double terminal_yaw_min_vel_{0.08}; //!< Minimum effective angular speed during final alignment
+  double terminal_yaw_max_vel_{0.5}; //!< Maximum angular speed during final alignment
   
   std::vector<geometry_msgs::msg::Point> footprint_spec_; //!< Store the footprint of the robot 
   double robot_inscribed_radius_; //!< The radius of the inscribed circle of the robot (collision possible)
@@ -422,5 +425,4 @@ public:
 }; // end namespace teb_local_planner
 
 #endif // TEB_LOCAL_PLANNER_ROS_H_
-
 

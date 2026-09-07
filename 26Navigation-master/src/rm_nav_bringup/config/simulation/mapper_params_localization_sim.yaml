@@ -19,11 +19,12 @@ slam_toolbox:
     map_start_pose: [0.0, 0.0, 0.0]
 
     debug_logging: false
-    throttle_scans: 1
+    throttle_scans: 2  # 10 Hz input -> ~5 Hz localization, avoid scan queue backlog
     transform_publish_period: 0.02 #thth if 0 never publishes odometrythth
     map_update_interval: 5.0
     resolution: 0.05
-    max_laser_range: 20.0 #for rastering images
+    min_laser_range: 0.45
+    max_laser_range: 10.0
     minimum_time_interval: 0.1
     transform_timeout: 0.5
     tf_buffer_duration: 30.

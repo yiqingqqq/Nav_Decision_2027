@@ -119,6 +119,7 @@ def generate_launch_description():
         name='complementary_filter_gain_node',
         output='screen',
         parameters=[
+            {'use_sim_time': use_sim_time},
             {'do_bias_estimation': True},
             {'do_adaptive_gain': True},
             {'use_mag': False},
@@ -134,7 +135,7 @@ def generate_launch_description():
         package='linefit_ground_segmentation_ros',
         executable='ground_segmentation_node',
         output='screen',
-        parameters=[segmentation_params]
+        parameters=[segmentation_params, {'use_sim_time': use_sim_time}]
     )
 
     bringup_pointcloud_to_laserscan_node = Node(
@@ -149,11 +150,12 @@ def generate_launch_description():
             'angle_min': -3.14159,  # -M_PI/2
             'angle_max': 3.14159,   # M_PI/2
             'angle_increment': 0.0043,  # M_PI/360.0
-            'scan_time': 0.3333,
+            'scan_time': 0.1,  # Mid-360 simulation publishes at 10 Hz
             'range_min': 0.45,
             'range_max': 10.0,
             'use_inf': True,
-            'inf_epsilon': 1.0
+            'inf_epsilon': 1.0,
+            'use_sim_time': use_sim_time
         }],
         name='pointcloud_to_laserscan'
     )
@@ -183,7 +185,7 @@ def generate_launch_description():
                 executable='fastlio_mapping',
                 parameters=[
                     fastlio_mid360_params,
-                    {use_sim_time: use_sim_time}
+                    {'use_sim_time': use_sim_time}
                 ],
                 output='screen'
             ),

@@ -36,6 +36,11 @@ ament_auto_add_library(send_goal SHARED
 )
 add_target_dependencies(send_goal)
 
+ament_auto_add_library(follow_tunnel_path SHARED
+    plugins/action/follow_tunnel_path.cpp
+)
+add_target_dependencies(follow_tunnel_path)
+
 ament_auto_add_library(sub_game_status SHARED
     plugins/action/sub_game_status.cpp
 )

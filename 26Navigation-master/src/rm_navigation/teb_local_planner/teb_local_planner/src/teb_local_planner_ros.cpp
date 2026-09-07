@@ -42,6 +42,8 @@
 #include <boost/algorithm/string.hpp>
 
 #include <string>
+#include <algorithm>
+#include <cmath>
 
 // pluginlib macros
 #include <pluginlib/class_list_macros.hpp>
@@ -90,9 +92,15 @@ void TebLocalPlannerROS::initialize(nav2_util::LifecycleNode::SharedPtr node)
             new rclcpp::Node("costmap_converter", node->get_namespace(), 
               rclcpp::NodeOptions()));
     cfg_->declareParameters(node, name_);
+    declare_parameter_if_not_declared(node, name_ + ".terminal_yaw_kp", rclcpp::ParameterValue(terminal_yaw_kp_));
+    declare_parameter_if_not_declared(node, name_ + ".terminal_yaw_min_vel", rclcpp::ParameterValue(terminal_yaw_min_vel_));
+    declare_parameter_if_not_declared(node, name_ + ".terminal_yaw_max_vel", rclcpp::ParameterValue(terminal_yaw_max_vel_));
 
     // get parameters of TebConfig via the nodehandle and override the default config
     cfg_->loadRosParamFromNodeHandle(node, name_);
+    node->get_parameter_or(name_ + ".terminal_yaw_kp", terminal_yaw_kp_, terminal_yaw_kp_);
+    node->get_parameter_or(name_ + ".terminal_yaw_min_vel", terminal_yaw_min_vel_, terminal_yaw_min_vel_);
+    node->get_parameter_or(name_ + ".terminal_yaw_max_vel", terminal_yaw_max_vel_, terminal_yaw_max_vel_);
     
     // reserve some memory for obstacles
     obstacles_.reserve(500);
@@ -261,10 +269,12 @@ geometry_msgs::msg::TwistStamped TebLocalPlannerROS::computeVelocityCommands(con
   // Update for the current goal checker's state
   geometry_msgs::msg::Pose pose_tolerance;
   geometry_msgs::msg::Twist vel_tolerance;
+  double yaw_goal_tolerance = 0.2;
   if (!goal_checker->getTolerances(pose_tolerance, vel_tolerance)) {
     RCLCPP_WARN(logger_, "Unable to retrieve goal checker's tolerances!");
   } else {
     cfg_->goal_tolerance.xy_goal_tolerance = pose_tolerance.position.x;
+    yaw_goal_tolerance = std::abs(tf2::getYaw(pose_tolerance.orientation));
   }
   
   // Get robot pose
@@ -322,6 +332,27 @@ geometry_msgs::msg::TwistStamped TebLocalPlannerROS::computeVelocityCommands(con
   else
   {
     robot_goal_.theta() = tf2::getYaw(goal_point.pose.orientation);
+  }
+
+  // Once the final global-plan pose is inside the XY tolerance, use a
+  // deterministic in-place yaw controller. TEB remains responsible for the
+  // approach, while Nav2's GoalChecker remains the single completion judge.
+  const double goal_dx = robot_goal_.x() - robot_pose_.x();
+  const double goal_dy = robot_goal_.y() - robot_pose_.y();
+  const double goal_distance = std::hypot(goal_dx, goal_dy);
+  const double yaw_error = std::atan2(
+    std::sin(robot_goal_.theta() - robot_pose_.theta()),
+    std::cos(robot_goal_.theta() - robot_pose_.theta()));
+  if (goal_idx == static_cast<int>(global_plan_.size()) - 1 &&
+      goal_distance <= cfg_->goal_tolerance.xy_goal_tolerance &&
+      std::abs(yaw_error) > yaw_goal_tolerance)
+  {
+    double angular_speed = std::clamp(
+      terminal_yaw_kp_ * std::abs(yaw_error),
+      terminal_yaw_min_vel_, terminal_yaw_max_vel_);
+    cmd_vel.twist.angular.z = std::copysign(angular_speed, yaw_error);
+    last_cmd_ = cmd_vel.twist;
+    return cmd_vel;
   }
 
   // overwrite/update start of the transformed plan with the actual robot position (allows using the plan as initial trajectory)

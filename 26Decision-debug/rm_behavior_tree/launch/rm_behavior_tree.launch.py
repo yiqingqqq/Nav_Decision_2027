@@ -8,7 +8,9 @@ from launch_ros.actions import Node
 def generate_launch_description():
     bt_config_dir = os.path.join(get_package_share_directory('rm_behavior_tree'), 'config')
 
-    style = LaunchConfiguration('style', default='v1.xml')
+    # Keep the generic launcher on the established ordinary strategy.  The
+    # tunnel workflow explicitly supplies tunnel.xml via run_tunnel.sh.
+    style = LaunchConfiguration('style', default='v2.xml')
     use_sim_time = LaunchConfiguration('use_sim_time', default='False')
 
     bt_xml_dir = PathJoinSubstitution([bt_config_dir, style])
@@ -16,7 +18,9 @@ def generate_launch_description():
     rm_behavior_tree_node = Node(
         package='rm_behavior_tree',
         executable='rm_behavior_tree',
-        respawn=True,
+        # Keep failures visible during tunnel debugging. Automatic respawn can
+        # hide the first exception and repeatedly collide with Groot's port.
+        respawn=False,
         respawn_delay=3,
         parameters=[
             {

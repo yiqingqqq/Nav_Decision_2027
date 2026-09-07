@@ -28,7 +28,7 @@ chmod +x run.sh
 
 ### RMUL 2027 隧道模式
 
-隧道模式基于 `v2.xml`，不会改变 `v0.xml`、`v1.xml` 或 `v2.xml`：
+隧道模式使用独立的 `tunnel.xml`，不会改变 `v0.xml`、`v1.xml` 或 `v2.xml`：
 
 ```bash
 chmod +x run_tunnel.sh
@@ -37,31 +37,37 @@ chmod +x run_tunnel.sh
 
 该模式当前仅使用红方坐标，不订阅或依赖裁判系统的 `/feedback_robot_id`。
 
-`run.sh` 启动普通 `v2.xml` 模式，`run_tunnel.sh` 启动 `tunnel.xml` 模式，二者不要同时运行。
+`run.sh` 和 launch 文件默认启动普通策略 `v2.xml`。隧道策略只能通过 `run_tunnel.sh` 启动；该脚本会等待 Nav2 action server 就绪，二者不要同时运行。
 
-`run_tunnel.sh` 会等待 Nav2 的 `/navigate_to_pose` 可用后再启动决策，避免导航尚未就绪时反复报 Action Server 不可达。
+`run_tunnel.sh` 会清理旧的 ROS graph daemon 缓存，并同时等待
+`bt_navigator` 和 `controller_server` 进入 active，再确认 `/navigate_to_pose`
+与 `/follow_path` 各有一个真实 action server，避免只看到残留的 action 名称就过早启动决策。
 
-### 一键启动 RMUL2027 隧道仿真验收
+#### 调试阶段的自动重启策略
 
-验收脚本使用 `RMUL2027.posegraph` 和 slam_toolbox localization，并依次启动仿真、Nav2 和 RViz。该序列化地图以出生位姿为局部 `map` 原点，所以场地绝对坐标会转换为导航工程坐标。地图与 Nav2 就绪后，脚本会直接执行一次控制器验收路线：
+当前 launch 明确使用 `respawn=False`。这是隧道调试阶段的有意设置：
+进程崩溃后保留第一个异常，避免 launch 反复拉起进程、重复占用
+Groot2/ZMQ `1667` 端口，从而掩盖最初的故障。
+
+只有在启动、端口释放和异常处理经过稳定验证后，才建议生产运行恢复
+`respawn=True`。即使 Groot2 的 `1667` 端口被占用，决策进程现在也会记录错误并在无 Groot 监控模式下继续执行，不再因 ZMQ 异常退出。
+
+### RMUL2027 隧道坐标与验收路线
+
+RMUL2027 仿真使用 `RMUL2027.posegraph` 和 slam_toolbox localization。该序列化地图以世界位姿 `(5.0,-3.0,π)` 为局部 `map` 原点；决策层按 `p_map = R(-π)(p_world - (5,-3))` 转换场地绝对坐标。手动启动导航、模拟裁判系统和决策后，验收路线为：
 
 ```text
 FollowPath 到局部 map 原点 (0.0, 0.0)
-→ FollowPath 到较近端点 (1.0, 0.6)
-→ 切换 TunnelController
-→ 到达隧道内部强制点 (2.5, 0.6)
-→ 驶向另一端 (4.5, 0.6)
+→ FollowPath 到入口准备点 (1.0, 0.4)，并将 map yaw 对准 0（世界 yaw π）
+→ 向 `/follow_path` 一次提交 TunnelController 有序中心线
+→ 经隧道内部点 (2.5, 0.4)
+→ 完全驶出到 (4.5, 0.4)
 → 恢复 FollowPath
 ```
 
-上述工程坐标分别对应场地绝对坐标 `(5.0,-3.0) → (4.0,-3.6) → (2.5,-3.6) → (0.5,-3.6)`。
+上述工程坐标分别对应场地绝对坐标 `(5.0,-3.0) → (4.0,-3.4) → (2.5,-3.4) → (0.5,-3.4)`。
 
-```bash
-chmod +x run_tunnel_sim.sh
-./run_tunnel_sim.sh
-```
-
-隧道内部点用于约束全局路径必须经过隧道，防止规划器因为隧道膨胀代价较高而改走大路。
+是否走隧道及方向在入口目标的全局路径生成之前确定。入口成功对准后即进入已承诺状态，决策层直接向 controller server 发送完整的有序中心线，不再调用全局规划器，因此不会在隧道内改选大路。该动作也绕过 `bt_navigator` 的恢复树，禁止隧道内旋转恢复；失败时使用相反点序、保持原隧道姿态退回入口准备点。
 
 完整策略不会永久指定入口和出口。开始一次穿越时，`SelectTunnelDirection` 根据机器人当前位置选择较近端点作为入口，另一端作为出口，并将该方向锁定到本次穿越结束。
 
@@ -69,12 +75,14 @@ chmod +x run_tunnel_sim.sh
 
 `RunOnceUntilHalted` 保证一次任务只穿越一次；撤退、补血恢复或比赛分支切换使本轮任务结束后会重置，下一轮重新按当前位置选择近端。
 
-该脚本不运行完整比赛策略树，避免其他决策分支干扰控制器验收。验收结束后 RViz 会保持打开；按 `Ctrl+C` 会关闭该脚本启动的全部子进程。
-脚本会主动解除 Gazebo 物理暂停，避免因仿真时钟不运行而无法加载 `/map`。
+### Groot2 端口检查
 
-### 杀死进程
-lsof -i :1667
-kill -9 
+```bash
+lsof -nP -iTCP:1667 -sTCP:LISTEN
+```
+
+如端口被旧的 `rm_behavior_tree` 或 Groot 进程占用，先正常终止该进程，
+确认端口释放后再运行 `run_tunnel.sh`。
 
 ## 功能实现
 

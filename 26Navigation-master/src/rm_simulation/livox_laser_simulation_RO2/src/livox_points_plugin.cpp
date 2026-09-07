@@ -1,4 +1,3 @@
-#include <boost/chrono.hpp>
 #include <gazebo/physics/Model.hh>
 #include <gazebo/physics/MultiRayShape.hh>  // Store the latest laser scans into laserMsg
 #include <gazebo/physics/PhysicsEngine.hh>
@@ -146,7 +145,6 @@ namespace gazebo
         pp_livox.header.stamp = node_->get_clock()->now();
         pp_livox.header.frame_id = raySensor->Name();
         int count = 0;
-        boost::chrono::high_resolution_clock::time_point start_time = boost::chrono::high_resolution_clock::now();
 
         // 用于 PointCloud2 类型消息发布
         sensor_msgs::msg::PointCloud2 cloud2;
@@ -194,10 +192,12 @@ namespace gazebo
             ++out_y;
             ++out_z;
 
-            // 计算时间戳偏移
-            boost::chrono::high_resolution_clock::time_point end_time = boost::chrono::high_resolution_clock::now();
-            boost::chrono::nanoseconds elapsed_time = boost::chrono::duration_cast<boost::chrono::nanoseconds>(end_time - start_time);
-            p.offset_time = elapsed_time.count();
+            // Gazebo evaluates every ray in this message at one simulation
+            // instant. A wall-clock loop duration is not a measurement time
+            // and made FAST-LIO apply false motion compensation while Gazebo
+            // ran faster/slower than real time. Mark this simulated scan as
+            // instantaneous; FAST-LIO then uses its configured 10 Hz period.
+            p.offset_time = 0;
 
             // 将点云数据添加到 CustomMsg 消息中
             pp_livox.points.push_back(p);

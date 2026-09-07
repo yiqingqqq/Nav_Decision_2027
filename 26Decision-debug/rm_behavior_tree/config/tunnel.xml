@@ -40,12 +40,22 @@
                        hp_threshold_retreat="110"
                        hp_threshold_recover="400"/>
 
-            <SubTree ID="TraverseTunnelInbound"
-                     _autoremap="true"/>
+            <Sequence>
+              <RunOnceUntilHalted>
+                <SubTree ID="TraverseTunnel"
+                         _autoremap="true"/>
+              </RunOnceUntilHalted>
+              <!-- World (5.0,-3.0) is map (0.0,0.0). -->
+              <SendGoal name="ReturnToSupply"
+                        goal_pose="0.0;0.0;0;0;0;0;1"
+                        action_name="/navigate_to_pose"
+                        move="false"
+                        length="1.0"/>
+            </Sequence>
 
             <Sequence>
               <RunOnceUntilHalted>
-                <SubTree ID="TraverseTunnelOutbound"
+                <SubTree ID="TraverseTunnel"
                          _autoremap="true"/>
               </RunOnceUntilHalted>
 
@@ -89,74 +99,79 @@
     </ReactiveSequence>
   </BehaviorTree>
 
-  <BehaviorTree ID="TraverseTunnelOutbound">
-    <!-- Entry and exit straddle the boundary-side gap in the RMUL2027 STL. -->
-    <Fallback>
+  <BehaviorTree ID="TraverseTunnel">
+    <!-- Select the tunnel edge before asking Nav2 to generate any global path. -->
+    <RetryUntilSuccessful num_attempts="2">
       <Sequence>
         <SelectTunnelDirection current_location="{current_location}"
                                robot_id="0"
+                               preparation_goal="{tunnel_preparation}"
                                entry_goal="{tunnel_entry}"
-                               inside_goal="{tunnel_inside}"
-                               exit_goal="{tunnel_exit}"/>
-        <RetryUntilSuccessful num_attempts="2">
+                               traverse_path="{tunnel_path}"
+                               retreat_path="{tunnel_retreat_path}"/>
+
+        <!-- Soft alignment happens outside the tunnel. A successful goal
+             means both 0.12 m position and 0.27 rad yaw tolerances passed. -->
+        <SelectController controller_id="FollowPath"
+                          topic_name="/controller_selector"/>
+        <Timeout msec="12000">
+          <SendGoal name="TunnelPreparationAndAlign"
+                    goal_pose="{tunnel_preparation}"
+                    action_name="/navigate_to_pose"
+                    move="false"
+                    length="1.0"/>
+        </Timeout>
+
+        <!-- Use the same NavigateToPose/FollowPath chain that was validated
+             manually in RViz. Commit only after the entrance pose succeeds. -->
+        <Timeout msec="10000">
+          <SendGoal name="TunnelEntry"
+                    goal_pose="{tunnel_entry}"
+                    action_name="/navigate_to_pose"
+                    move="false"
+                    length="1.0"/>
+        </Timeout>
+
+        <!-- Reaching this point commits the traversal. /follow_path bypasses
+             the global planner and bt_navigator recovery tree, so the ordered
+             centerline cannot be replaced by a road route or a Spin recovery. -->
+        <Fallback>
           <Sequence>
-            <SelectController controller_id="FollowPath"
-                              topic_name="/controller_selector"/>
-            <Timeout msec="7000">
-              <SendGoal name="TunnelEntry"
-                        goal_pose="{tunnel_entry}"
-                        action_name="/navigate_to_pose"
-                        move="false"
-                        length="1.0"/>
-            </Timeout>
-            <SelectController controller_id="TunnelController"
-                              topic_name="/controller_selector"/>
-            <Timeout msec="20000">
-              <SendGoal name="TunnelInside"
-                        goal_pose="{tunnel_inside}"
-                        action_name="/navigate_to_pose"
-                        move="false"
-                        length="1.0"/>
-            </Timeout>
-            <Timeout msec="20000">
-              <SendGoal name="TunnelExit"
-                        goal_pose="{tunnel_exit}"
-                        action_name="/navigate_to_pose"
-                        move="false"
-                        length="1.0"/>
+            <Timeout msec="30000">
+              <FollowTunnelPath name="CommittedTunnelTraversal"
+                                path="{tunnel_path}"
+                                action_name="/follow_path"
+                                controller_id="TunnelController"
+                                goal_checker_id="general_goal_checker"/>
             </Timeout>
             <SelectController controller_id="FollowPath"
                               topic_name="/controller_selector"/>
           </Sequence>
-        </RetryUntilSuccessful>
-      </Sequence>
-      <!-- Tunnel failure must not permanently block the original attack policy. -->
-      <SelectController controller_id="FollowPath"
-                        topic_name="/controller_selector"/>
-    </Fallback>
-  </BehaviorTree>
 
-  <BehaviorTree ID="TraverseTunnelInbound">
-    <!-- Nav2 selects the shortest collision-free route; it may use the tunnel or go direct. -->
-    <Fallback>
-      <RetryUntilSuccessful num_attempts="2">
-        <Timeout msec="10000">
-          <SubTree ID="NavigateByAlliance"
-                   red_goal="5.25;-3.0;0;0;0;0;1"
-                   blue_goal="0.25;0.0;0;0;0;0;1"
-                   move="false"
-                   length="1.0"
-                   _autoremap="true"/>
-        </Timeout>
-      </RetryUntilSuccessful>
-      <!-- Final fallback keeps the original direct Supply command active. -->
-      <SubTree ID="NavigateByAlliance"
-               red_goal="5.25;-3.0;0;0;0;0;1"
-               blue_goal="0.25;0.0;0;0;0;0;1"
-               move="false"
-               length="1.0"
-               _autoremap="true"/>
-    </Fallback>
+          <!-- Failure recovery keeps the committed heading and follows the
+               same centerline back to the selected entrance preparation point. -->
+          <Sequence>
+            <Timeout msec="30000">
+              <FollowTunnelPath name="TunnelStraightRetreat"
+                                path="{tunnel_retreat_path}"
+                                action_name="/follow_path"
+                                controller_id="TunnelController"
+                                goal_checker_id="general_goal_checker"/>
+            </Timeout>
+            <SelectController controller_id="FollowPath"
+                              topic_name="/controller_selector"/>
+            <AlwaysFailure/>
+          </Sequence>
+
+          <!-- Also restore the ordinary selector if the retreat itself fails. -->
+          <Sequence>
+            <SelectController controller_id="FollowPath"
+                              topic_name="/controller_selector"/>
+            <AlwaysFailure/>
+          </Sequence>
+        </Fallback>
+      </Sequence>
+    </RetryUntilSuccessful>
   </BehaviorTree>
 
   <BehaviorTree ID="NavigateByAlliance">
@@ -182,9 +197,16 @@
     <Action ID="SelectTunnelDirection">
       <input_port name="current_location"/>
       <input_port name="robot_id"/>
+      <output_port name="preparation_goal"/>
       <output_port name="entry_goal"/>
-      <output_port name="inside_goal"/>
-      <output_port name="exit_goal"/>
+      <output_port name="traverse_path"/>
+      <output_port name="retreat_path"/>
+    </Action>
+    <Action ID="FollowTunnelPath">
+      <input_port name="path"/>
+      <input_port name="action_name" default="/follow_path"/>
+      <input_port name="controller_id" default="TunnelController"/>
+      <input_port name="goal_checker_id" default="general_goal_checker"/>
     </Action>
     <Condition ID="IsOnOwnSide">
       <input_port name="current_location"/>

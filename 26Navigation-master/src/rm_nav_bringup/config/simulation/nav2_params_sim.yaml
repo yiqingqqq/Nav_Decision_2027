@@ -1,6 +1,6 @@
 amcl:
   ros__parameters:
-    use_sim_time: False # thth 不使用仿真时间
+    use_sim_time: True
     alpha1: 0.2
     alpha2: 0.2
     alpha3: 0.2
@@ -41,15 +41,15 @@ amcl:
 
 amcl_map_client:
   ros__parameters:
-    use_sim_time: False
+    use_sim_time: True
 
 amcl_rclcpp_node:
   ros__parameters:
-    use_sim_time: False
+    use_sim_time: True
 
 bt_navigator:
   ros__parameters:
-    use_sim_time: False
+    use_sim_time: True
     global_frame: map
     robot_base_frame: base_link
     odom_topic: /Odometry
@@ -93,7 +93,7 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
-    use_sim_time: False
+    use_sim_time: True
     controller_frequency: 20.0   # thth 控制器频率
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.001  # thth必改：0.05（降低横移速度阈值，适配小型机器人）
@@ -103,14 +103,17 @@ controller_server:
     goal_checker_plugins: ["general_goal_checker"] # "precise_goal_checker"
     controller_plugins: ["FollowPath", "TunnelController"]
     progress_checker:
-      plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.5   # thth建议改：0.3（缩小进度检查半径，减少误判）
-      movement_time_allowance: 10.0
+      # PoseProgressChecker counts either translation or rotation as progress.
+      # This prevents final in-place yaw alignment from being treated as a stall.
+      plugin: "nav2_controller::PoseProgressChecker"
+      required_movement_radius: 0.10
+      required_movement_angle: 0.05
+      movement_time_allowance: 15.0
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.06    #thth
-      yaw_goal_tolerance: 0.20  # 入口和隧道中保持明确路径朝向
+      xy_goal_tolerance: 0.12    # Tunnel preparation handoff and terminal yaw activation radius
+      yaw_goal_tolerance: 0.27  # Preparation-point yaw handoff tolerance
     FollowPath:
       plugin: teb_local_planner::TebLocalPlannerROS
       # https://github.com/rst-tu-dortmund/teb_local_planner/tree/ros2-master
@@ -147,7 +150,10 @@ controller_server:
       max_vel_theta: 1.5     #thth         #最大转向角速度
       acc_lim_x: 3.0       #thth            #最大平移加速度
       acc_lim_theta: 1.0    #thth                #最大角加速度
-      is_footprint_dynamic: True           #如果为真，在检查轨迹可行性之前更新足迹
+      is_footprint_dynamic: True           #如果为真，在检查轨迹可行性之前更新 footprint
+      footprint_model:
+        type: "circular"
+        radius: 0.30
       use_proportional_saturation: False    #如果为true，则按比例减少所有扭曲分量（线性x和y以及角度z）（如果任何扭曲分量超过其相应的界限），而不是单独饱和每个扭曲分量
       transform_tolerance: 0.4              #在TF树中查询转换时的容差（秒）
 
@@ -162,18 +168,21 @@ controller_server:
       # Robot/Omni 此部分参数仅适用于全方位移动机器人
       #*******************************************************************************
       max_vel_y: 5.0   # thth       #最大横移速度
-      acc_lim_y: 3.0   # thth        #最大横移加速度
+      acc_lim_y: 1.2   # thth        #最大横移加速度
 
       #*******************************************************************************
       # GoalTolerance 目标容差
       #*******************************************************************************
       free_goal_vel: False      #允许机器人以最大速度驶向目的地，为False时，车到达终点时的目标速度为0；
+      terminal_yaw_kp: 1.5
+      terminal_yaw_min_vel: 0.08
+      terminal_yaw_max_vel: 0.50
 
       #*******************************************************************************
       # Obstacles 障碍物
       #*******************************************************************************
-      min_obstacle_dist: 0.35   # 普通场地区域安全距离
-      inflation_dist: 0.35      # 普通控制器缓冲距离
+      min_obstacle_dist: 0.02   # RMUL tunnel approach clearance
+      inflation_dist: 0.30      # Ordinary-controller obstacle cost buffer
       dynamic_obstacle_inflation_dist: 0.4   #thth具有非零惩罚成本的动态障碍物预测位置周围的缓冲区（应大于min_obstacle_dist才能生效)
       include_dynamic_obstacles: True             #预测动态障碍物周围的缓冲区，用于增加安全裕度。此缓冲区内具有非零的惩罚代价
       include_costmap_obstacles: True             #是否直接考虑代价地图中的障碍物 (如果没有单独的聚类和检测功能，则需要此选项)
@@ -212,13 +221,13 @@ controller_server:
       weight_kinematics_nh: 0.0               #满足非全向运动学约束的权重
       weight_kinematics_forward_drive: 0.0    #强制机器人仅选择向前运动方向的权重 (仅用于差分驱动机器人)
       weight_kinematics_turning_radius: 0.1   #强制最小转弯半径（小车型机器人）的优化权重
-      weight_optimaltime: 0.05            #优化轨迹并尽量缩短运动时间的权重，确保在规定的时间内到达目标
+      weight_optimaltime: 1.0            #优化轨迹并尽量缩短运动时间的权重，确保在规定的时间内到达目标
       weight_shortest_path: 0.2               #倾向于选择更短的路径，路径可能更加弯曲或不平坦
-      weight_obstacle: 50.0       #thth           #与障碍物保持最小距离的权重
+      weight_obstacle: 20.0       #thth           #与障碍物保持最小距离的权重
       weight_inflation: 0.2                   #优化轨迹并尽量避免膨胀区域的权重 (权重应设置较小)
       weight_dynamic_obstacle: 20.0    #thth      #与动态障碍物保持最小距离的权重
       weight_dynamic_obstacle_inflation: 0.2  #优化轨迹并尽量避免动态障碍物膨胀区域的权重 (权重应设置较小)
-      weight_viapoint: 1.0                    #一些特定的权重 (例如 weight_obstacle) 会在外循环每次迭代中乘以该因子进行调整。这样逐步增加权重比直接设置较高的权重值可以改善优化问题的数值条件
+      weight_viapoint: 5.0                    #一些特定的权重 (例如 weight_obstacle) 会在外循环每次迭代中乘以该因子进行调整。这样逐步增加权重比直接设置较高的权重值可以改善优化问题的数值条件
       weight_adapt_factor: 2.0                #非线性障碍物代价的指数 (cost = linear_cost * obstacle_cost_exponent)。设置为 1 则禁用非线性代价 (默认值)
 
       #*******************************************************************************
@@ -284,7 +293,7 @@ controller_server:
       is_footprint_dynamic: True
       footprint_model:
         type: "circular"
-        radius: 0.32
+        radius: 0.30
       min_obstacle_dist: 0.04
       inflation_dist: 0.10
       weight_inflation: 0.02
@@ -318,12 +327,12 @@ local_costmap:
       publish_frequency: 8.0
       global_frame: map
       robot_base_frame: base_link
-      use_sim_time: False
+      use_sim_time: True
       rolling_window: true
       width: 6
       height: 6
       resolution: 0.05   #thth 局部代价地图分辨率
-      robot_radius: 0.32 # Nav2 圆形 footprint 半径
+      robot_radius: 0.30 # Nav2 local costmap circular robot footprint radius
       plugins: ["obstacle_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -342,7 +351,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 2.0       #thth 代价缩放因子
-        inflation_radius: 0.325        #thth 膨胀半径
+        inflation_radius: 0.0          # Tunnel debug: disable local costmap inflation
       always_send_full_costmap: false #thth 从true→false，只发送更新区域，避免代价地图全量刷新导致的“瞬时蓝色区”
 
 
@@ -353,8 +362,8 @@ global_costmap:
       publish_frequency: 2.0
       global_frame: map
       robot_base_frame: base_link
-      use_sim_time: False
-      robot_radius: 0.32  # Nav2 圆形 footprint 半径
+      use_sim_time: True
+      robot_radius: 0.30  # Nav2 圆形 footprint 半径
       resolution: 0.04  #thth 全局代价地图分辨率
       track_unknown_space: true
       plugins: ["static_layer", "stvl_layer", "inflation_layer"]
@@ -409,12 +418,12 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0   #thth 代价缩放因子（与局部地图对齐）
-        inflation_radius: 0.325    #thth 膨胀半径
+        inflation_radius: 0.0    #thth 膨胀半径
       always_send_full_costmap: True
 
 map_saver:
   ros__parameters:
-    use_sim_time: False
+    use_sim_time: True
     save_map_timeout: 5.0
     free_thresh_default: 0.25
     occupied_thresh_default: 0.65
@@ -423,7 +432,7 @@ map_saver:
 planner_server:
   ros__parameters:
     expected_planner_frequency: 5.0
-    use_sim_time: False
+    use_sim_time: True
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner/NavfnPlanner"
@@ -444,7 +453,7 @@ recoveries_server:
     global_frame: odom
     robot_base_frame: base_link
     transform_timeout: 0.1
-    use_sim_time: False
+    use_sim_time: True
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4
@@ -452,7 +461,7 @@ recoveries_server:
 
 map_server:
   ros__parameters:
-    use_sim_time: False
+    use_sim_time: True
     yaml_filename: ""
 
 velocity_smoother:

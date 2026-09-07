@@ -10,9 +10,10 @@ BT::PortsList SelectTunnelDirectionAction::providedPorts()
   return {
     BT::InputPort<geometry_msgs::msg::TransformStamped>("current_location"),
     BT::InputPort<uint8_t>("robot_id"),
+    BT::OutputPort<geometry_msgs::msg::PoseStamped>("preparation_goal"),
     BT::OutputPort<geometry_msgs::msg::PoseStamped>("entry_goal"),
-    BT::OutputPort<geometry_msgs::msg::PoseStamped>("inside_goal"),
-    BT::OutputPort<geometry_msgs::msg::PoseStamped>("exit_goal")};
+    BT::OutputPort<nav_msgs::msg::Path>("traverse_path"),
+    BT::OutputPort<nav_msgs::msg::Path>("retreat_path")};
 }
 
 geometry_msgs::msg::PoseStamped SelectTunnelDirectionAction::makePose(
@@ -27,6 +28,19 @@ geometry_msgs::msg::PoseStamped SelectTunnelDirectionAction::makePose(
   return pose;
 }
 
+geometry_msgs::msg::PoseStamped SelectTunnelDirectionAction::worldToMap(
+  double x, double y, double yaw)
+{
+  // Gazebo spawns the RMUL2027 red sentry at world (5, -3, pi), while
+  // slam_toolbox defines map (0, 0, 0) at that pose. Keep the competition
+  // route in world coordinates and perform the rigid transform at this
+  // module boundary instead of mixing world and map coordinates in the BT.
+  constexpr double kSpawnX = 5.0;
+  constexpr double kSpawnY = -3.0;
+  constexpr double kPi = 3.14159265358979323846;
+  return makePose(kSpawnX - x, kSpawnY - y, yaw - kPi);
+}
+
 BT::NodeStatus SelectTunnelDirectionAction::tick()
 {
   const auto location = getInput<geometry_msgs::msg::TransformStamped>("current_location");
@@ -35,18 +49,22 @@ BT::NodeStatus SelectTunnelDirectionAction::tick()
     return BT::NodeStatus::FAILURE;
   }
 
-  // RMUL2027 red-side field coordinates are expressed in the serialized map
-  // frame whose origin is the Gazebo spawn pose (5.0, -3.0, pi).
   constexpr double kPi = 3.14159265358979323846;
-  const bool red_side = robot_id.value() == 0;
-  const double yaw_a_to_b = kPi;
-  const double yaw_b_to_a = 0.0;
-  const auto endpoint_a = red_side ?
-    makePose(4.5, 0.6, yaw_a_to_b) : makePose(-0.5, 3.6, yaw_a_to_b);
-  const auto endpoint_b = red_side ?
-    makePose(1.0, 0.6, yaw_b_to_a) : makePose(-4.0, 3.6, yaw_b_to_a);
-  const double inside_x = red_side ? 2.5 : -2.5;
-  const double inside_y = red_side ? 0.6 : 3.6;
+  // The tunnel mode currently supports the red-side route only (robot_id=0).
+  if (robot_id.value() != 0) {
+    return BT::NodeStatus::FAILURE;
+  }
+
+  // Keep preparation poses outside the tunnel mouth. The ordered entry path
+  // is handled by a dedicated low-clearance controller only after alignment.
+  // The ordinary Nav2 controller handles both the open-space preparation pose
+  // and the entrance pose, matching the manually validated RViz goal chain.
+  const auto preparation_a = worldToMap(4.40, -3.20, kPi);
+  const auto endpoint_a = worldToMap(4.0, -3.4, kPi);
+  const auto midpoint = worldToMap(2.5, -3.4, kPi);
+  const auto endpoint_b = worldToMap(0.5, -3.4, kPi);
+  // Mirror the approach geometry for reverse traversal from the B side.
+  const auto preparation_b = worldToMap(0.10, -3.20, 0.0);
 
   const double x = location->transform.translation.x;
   const double y = location->transform.translation.y;
@@ -57,16 +75,33 @@ BT::NodeStatus SelectTunnelDirectionAction::tick()
     };
 
   const bool a_is_nearer = squared_distance(endpoint_a) <= squared_distance(endpoint_b);
-  const double tunnel_yaw = a_is_nearer ? yaw_a_to_b : yaw_b_to_a;
+  const auto & preparation = a_is_nearer ? preparation_a : preparation_b;
   const auto & entry = a_is_nearer ? endpoint_a : endpoint_b;
   const auto & exit = a_is_nearer ? endpoint_b : endpoint_a;
-  setOutput(
-    "entry_goal",
-    makePose(entry.pose.position.x, entry.pose.position.y, tunnel_yaw));
-  setOutput("inside_goal", makePose(inside_x, inside_y, tunnel_yaw));
-  setOutput(
-    "exit_goal",
-    makePose(exit.pose.position.x, exit.pose.position.y, tunnel_yaw));
+  const double tunnel_yaw = a_is_nearer ? 0.0 : kPi;
+
+  const auto oriented_pose = [tunnel_yaw](const auto & pose) {
+      return makePose(pose.pose.position.x, pose.pose.position.y, tunnel_yaw);
+    };
+  const auto oriented_entry = oriented_pose(entry);
+  const auto oriented_preparation = oriented_pose(preparation);
+  const auto oriented_midpoint = oriented_pose(midpoint);
+  const auto oriented_exit = oriented_pose(exit);
+
+  nav_msgs::msg::Path traverse_path;
+  traverse_path.header.frame_id = "map";
+  traverse_path.poses = {oriented_entry, oriented_midpoint, oriented_exit};
+
+  // Preserve the committed tunnel heading while backing out. TunnelController
+  // is configured without oscillation recovery, so this cannot invoke Spin.
+  nav_msgs::msg::Path retreat_path;
+  retreat_path.header.frame_id = "map";
+  retreat_path.poses = {oriented_exit, oriented_midpoint, oriented_entry, oriented_preparation};
+
+  setOutput("preparation_goal", oriented_preparation);
+  setOutput("entry_goal", oriented_entry);
+  setOutput("traverse_path", traverse_path);
+  setOutput("retreat_path", retreat_path);
   return BT::NodeStatus::SUCCESS;
 }
 

@@ -28,6 +28,13 @@ int main(int argc, char ** argv)
   BT::RosNodeParams params_send_goal;
   params_send_goal.nh = send_goal_node;
   params_send_goal.default_port_value = "goal_pose";
+  params_send_goal.wait_for_server_timeout = std::chrono::milliseconds(5000);
+
+  auto follow_tunnel_path_node = std::make_shared<rclcpp::Node>("follow_tunnel_path");
+  BT::RosNodeParams params_follow_tunnel_path;
+  params_follow_tunnel_path.nh = follow_tunnel_path_node;
+  params_follow_tunnel_path.default_port_value = "/follow_path";
+  params_follow_tunnel_path.wait_for_server_timeout = std::chrono::milliseconds(5000);
 
   auto send_spin_node = std::make_shared<rclcpp::Node>("send_spin");
   BT::RosNodeParams params_send_spin;
@@ -75,6 +82,9 @@ int main(int argc, char ** argv)
 
   RegisterRosNode(factory, BT::SharedLibrary::getOSName("send_goal"), params_send_goal);
 
+  RegisterRosNode(
+    factory, BT::SharedLibrary::getOSName("follow_tunnel_path"), params_follow_tunnel_path);
+
   RegisterRosNode(factory, BT::SharedLibrary::getOSName("send_spin"), params_send_spin);
 
   RegisterRosNode(
@@ -82,9 +92,22 @@ int main(int argc, char ** argv)
 
   auto tree = factory.createTreeFromFile(bt_xml_path);
 
-  // Connect the Groot2Publisher. This will allow Groot2 to get the tree and poll status updates.
-  const unsigned port = 1667;
-  BT::Groot2Publisher publisher(tree, port);
+  // Groot is diagnostic-only: a stale monitor or behavior-tree process must
+  // never abort the robot decision process.
+  const bool enable_groot = node->declare_parameter<bool>("enable_groot", true);
+  const unsigned groot_port = static_cast<unsigned>(
+    node->declare_parameter<int>("groot_port", 1667));
+  std::unique_ptr<BT::Groot2Publisher> groot_publisher;
+  if (enable_groot) {
+    try {
+      groot_publisher = std::make_unique<BT::Groot2Publisher>(tree, groot_port);
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(
+        node->get_logger(),
+        "Groot2 publisher could not bind port %u: %s. Continuing without Groot monitoring.",
+        groot_port, e.what());
+    }
+  }
 
   while (rclcpp::ok()) {
     tree.tickWhileRunning(std::chrono::milliseconds(10));
