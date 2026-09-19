@@ -223,7 +223,9 @@
       <!-- slam_toolbox requires a continuous odom -> base_link chain to
            transform /scan (livox_frame) and establish map -> odom. -->
       <publish_odom>true</publish_odom>
-      <publish_odom_tf>true</publish_odom_tf>
+      <!-- FAST-LIO owns odom -> lidar_odom -> base_link. Publishing the
+           mecanum odom TF as well gives base_link two competing TF parents. -->
+      <publish_odom_tf>false</publish_odom_tf>
 
       <!-- Frame IDs -->
       <odometry_frame>odom</odometry_frame>
