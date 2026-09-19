@@ -1,6 +1,7 @@
 #include "action/select_tunnel_direction.hpp"
 
 #include <cmath>
+#include <iostream>
 
 namespace rm_behavior_tree
 {
@@ -12,6 +13,7 @@ BT::PortsList SelectTunnelDirectionAction::providedPorts()
     BT::InputPort<uint8_t>("robot_id"),
     BT::OutputPort<geometry_msgs::msg::PoseStamped>("preparation_goal"),
     BT::OutputPort<geometry_msgs::msg::PoseStamped>("entry_goal"),
+    BT::OutputPort<nav_msgs::msg::Path>("entry_path"),
     BT::OutputPort<nav_msgs::msg::Path>("traverse_path"),
     BT::OutputPort<nav_msgs::msg::Path>("retreat_path")};
 }
@@ -60,9 +62,11 @@ BT::NodeStatus SelectTunnelDirectionAction::tick()
   // The ordinary Nav2 controller handles both the open-space preparation pose
   // and the entrance pose, matching the manually validated RViz goal chain.
   const auto preparation_a = worldToMap(4.40, -3.20, kPi);
-  const auto endpoint_a = worldToMap(4.0, -3.4, kPi);
-  const auto midpoint = worldToMap(2.5, -3.4, kPi);
-  const auto endpoint_b = worldToMap(0.5, -3.4, kPi);
+  // The measured handoff path ends at map (1.0, 0.4). The actual tunnel
+  // centerline is 0.2 m farther inward at map y=0.6.
+  const auto endpoint_a = worldToMap(4.0, -3.6, kPi);
+  const auto midpoint = worldToMap(2.5, -3.6, kPi);
+  const auto endpoint_b = worldToMap(0.5, -3.6, kPi);
   // Mirror the approach geometry for reverse traversal from the B side.
   const auto preparation_b = worldToMap(0.10, -3.20, 0.0);
 
@@ -88,6 +92,25 @@ BT::NodeStatus SelectTunnelDirectionAction::tick()
   const auto oriented_midpoint = oriented_pose(midpoint);
   const auto oriented_exit = oriented_pose(exit);
 
+  nav_msgs::msg::Path entry_path;
+  entry_path.header.frame_id = "map";
+  if (a_is_nearer) {
+    // Preparation is a controller handoff region. Follow the measured,
+    // ordered approach instead of asking the global planner to rediscover it.
+    entry_path.poses = {
+      makePose(0.60, 0.20, 0.0),
+      makePose(0.72, 0.24, 0.0),
+      makePose(0.84, 0.31, 0.0),
+      makePose(1.00, 0.40, 0.0)};
+  } else {
+    // Mirror the approach for a traversal starting at the far endpoint.
+    entry_path.poses = {
+      makePose(4.90, 0.20, kPi),
+      makePose(4.78, 0.24, kPi),
+      makePose(4.66, 0.31, kPi),
+      makePose(4.50, 0.40, kPi)};
+  }
+
   nav_msgs::msg::Path traverse_path;
   traverse_path.header.frame_id = "map";
   traverse_path.poses = {oriented_entry, oriented_midpoint, oriented_exit};
@@ -100,8 +123,15 @@ BT::NodeStatus SelectTunnelDirectionAction::tick()
 
   setOutput("preparation_goal", oriented_preparation);
   setOutput("entry_goal", oriented_entry);
+  setOutput("entry_path", entry_path);
   setOutput("traverse_path", traverse_path);
   setOutput("retreat_path", retreat_path);
+  std::cout << "Tunnel route selected from map pose (" << x << ", " << y
+            << "): preparation=(" << oriented_preparation.pose.position.x << ", "
+            << oriented_preparation.pose.position.y << "), entry=("
+            << oriented_entry.pose.position.x << ", " << oriented_entry.pose.position.y
+            << "), exit=(" << oriented_exit.pose.position.x << ", "
+            << oriented_exit.pose.position.y << ")" << std::endl;
   return BT::NodeStatus::SUCCESS;
 }
 

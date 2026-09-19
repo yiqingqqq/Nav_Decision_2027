@@ -41,10 +41,16 @@
                        hp_threshold_recover="400"/>
 
             <Sequence>
-              <RunOnceUntilHalted>
+              <IfThenElse>
+                <Inverter>
+                  <IsOnOwnSide current_location="{current_location}"
+                               robot_id="0"
+                               red_exit_x="3.5"/>
+                </Inverter>
                 <SubTree ID="TraverseTunnel"
                          _autoremap="true"/>
-              </RunOnceUntilHalted>
+                <AlwaysSuccess/>
+              </IfThenElse>
               <!-- World (5.0,-3.0) is map (0.0,0.0). -->
               <SendGoal name="ReturnToSupply"
                         goal_pose="0.0;0.0;0;0;0;0;1"
@@ -54,10 +60,14 @@
             </Sequence>
 
             <Sequence>
-              <RunOnceUntilHalted>
+              <IfThenElse>
+                <IsOnOwnSide current_location="{current_location}"
+                             robot_id="0"
+                             red_exit_x="3.5"/>
                 <SubTree ID="TraverseTunnel"
                          _autoremap="true"/>
-              </RunOnceUntilHalted>
+                <AlwaysSuccess/>
+              </IfThenElse>
 
               <!-- The remainder preserves v2's deduction/Attack/Back/Center policy. -->
               <ReactiveFallback>
@@ -107,6 +117,7 @@
                                robot_id="0"
                                preparation_goal="{tunnel_preparation}"
                                entry_goal="{tunnel_entry}"
+                               entry_path="{tunnel_entry_path}"
                                traverse_path="{tunnel_path}"
                                retreat_path="{tunnel_retreat_path}"/>
 
@@ -122,14 +133,14 @@
                     length="1.0"/>
         </Timeout>
 
-        <!-- Use the same NavigateToPose/FollowPath chain that was validated
-             manually in RViz. Commit only after the entrance pose succeeds. -->
+        <!-- The preparation pose is a 0.12 m handoff region, not a second
+             exact navigation target. Follow the ordered measured approach. -->
         <Timeout msec="10000">
-          <SendGoal name="TunnelEntry"
-                    goal_pose="{tunnel_entry}"
-                    action_name="/navigate_to_pose"
-                    move="false"
-                    length="1.0"/>
+          <FollowTunnelPath name="TunnelOrderedEntry"
+                            path="{tunnel_entry_path}"
+                            action_name="/follow_path"
+                            controller_id="FollowPath"
+                            goal_checker_id="general_goal_checker"/>
         </Timeout>
 
         <!-- Reaching this point commits the traversal. /follow_path bypasses
@@ -199,6 +210,7 @@
       <input_port name="robot_id"/>
       <output_port name="preparation_goal"/>
       <output_port name="entry_goal"/>
+      <output_port name="entry_path"/>
       <output_port name="traverse_path"/>
       <output_port name="retreat_path"/>
     </Action>

@@ -181,7 +181,7 @@ controller_server:
       #*******************************************************************************
       # Obstacles 障碍物
       #*******************************************************************************
-      min_obstacle_dist: 0.02   # RMUL tunnel approach clearance
+      min_obstacle_dist: 0.05   # RMUL tunnel approach clearance
       inflation_dist: 0.30      # Ordinary-controller obstacle cost buffer
       dynamic_obstacle_inflation_dist: 0.4   #thth具有非零惩罚成本的动态障碍物预测位置周围的缓冲区（应大于min_obstacle_dist才能生效)
       include_dynamic_obstacles: True             #预测动态障碍物周围的缓冲区，用于增加安全裕度。此缓冲区内具有非零的惩罚代价
@@ -277,8 +277,11 @@ controller_server:
       max_global_plan_lookahead_dist: 1.5
       force_reinit_new_goal_dist: 1.0
       force_reinit_new_goal_angular: 0.30
-      feasibility_check_no_poses: 20
-      feasibility_check_lookahead_distance: 1.5
+      # The tunnel centerline is already committed and TEB still optimizes
+      # against obstacles. Checking 20 future poses with the full costmap
+      # footprint rejects the narrow passage before the robot can enter it.
+      feasibility_check_no_poses: 0
+      feasibility_check_lookahead_distance: -1.0
       exact_arc_length: True
       publish_feedback: False
       global_plan_viapoint_sep: 0.20
@@ -293,6 +296,8 @@ controller_server:
       is_footprint_dynamic: True
       footprint_model:
         type: "circular"
+        # Must match the costmap footprint. A smaller controller footprint
+        # makes TEB optimize trajectories that its feasibility check rejects.
         radius: 0.30
       min_obstacle_dist: 0.04
       inflation_dist: 0.10
