@@ -4,6 +4,7 @@
 #include "behaviortree_cpp/loggers/groot2_publisher.h"
 #include "behaviortree_cpp/utils/shared_library.h"
 #include "behaviortree_ros2/plugins.hpp"
+#include "semantic/semantic_bt_nodes.hpp"
 
 int main(int argc, char ** argv)
 {
@@ -16,6 +17,13 @@ int main(int argc, char ** argv)
     "style", "./rm_decision_ws/rm_behavior_tree/rm_behavior_tree.xml");
   node->get_parameter_or<std::string>(
     "style", bt_xml_path, "./rm_decision_ws/rm_behavior_tree/config/attack_left.xml");
+  const auto default_semantic_config =
+    ament_index_cpp::get_package_share_directory("rm_behavior_tree") +
+    "/config/RMUL2027_semantic_map.yaml";
+  const auto semantic_config = node->declare_parameter<std::string>(
+    "semantic_config", default_semantic_config);
+  auto semantic_navigation =
+    std::make_shared<rm_behavior_tree::SemanticNavigation>(semantic_config);
 
   std::cout << "Start RM_Behavior_Tree" << '\n';
   RCLCPP_INFO(node->get_logger(), "Load bt_xml: \e[1;42m %s \e[0m", bt_xml_path.c_str());
@@ -67,8 +75,6 @@ int main(int argc, char ** argv)
     "is_HP_deduction",
     "is_HP_level",
     "is_robot_id",
-    "is_on_own_side",
-    "select_tunnel_direction",
   };
   // clang-format on
 
@@ -79,6 +85,21 @@ int main(int argc, char ** argv)
   for (const auto & p : bt_plugin_libs) {
     factory.registerFromPlugin(BT::SharedLibrary::getOSName(p));
   }
+
+  factory.registerNodeType<rm_behavior_tree::GetCurrentPoseAction>(
+    "GetCurrentPose", node);
+  factory.registerNodeType<rm_behavior_tree::ResolveFieldPoseAction>(
+    "ResolveFieldPose", node, semantic_navigation);
+  factory.registerNodeType<rm_behavior_tree::GetCurrentRegionAction>(
+    "GetCurrentRegion", semantic_navigation);
+  factory.registerNodeType<rm_behavior_tree::IsInRegionCondition>(
+    "IsInRegion", semantic_navigation);
+  factory.registerNodeType<rm_behavior_tree::SelectSemanticRouteAction>(
+    "SelectSemanticRoute", node, semantic_navigation);
+  factory.registerNodeType<rm_behavior_tree::IsTunnelRouteCondition>(
+    "IsTunnelRoute");
+  factory.registerNodeType<rm_behavior_tree::BuildTunnelRetreatPathAction>(
+    "BuildTunnelRetreatPath", node);
 
   RegisterRosNode(factory, BT::SharedLibrary::getOSName("send_goal"), params_send_goal);
 

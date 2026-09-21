@@ -1,234 +1,108 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root BTCPP_format="4" main_tree_to_execute="BehaviorTree">
-  <!--
-    RMUL 2027 tunnel mode, based on v2.xml.
-    Red-side-only strategy. Tunnel direction is still selected from the
-    current position, but no referee-system robot ID is required.
-  -->
+  <!-- Coordinates live in RMUL2027_semantic_map.yaml. -->
   <BehaviorTree ID="BehaviorTree">
     <ReactiveSequence>
-      <SubGameStatus topic_name="/feedback_game_progress"
-                     game_progress="{game_progress}"/>
-      <SubRobotStatus topic_name="/feedback_robot_hp"
-                      feedback_robot_hp="{feedback_robot_hp}"/>
-      <GetCurrentLocation name="GetLocation"
-                          current_location="{current_location}"/>
-
+      <SubGameStatus topic_name="/feedback_game_progress" game_progress="{game_progress}"/>
+      <SubRobotStatus topic_name="/feedback_robot_hp" feedback_robot_hp="{feedback_robot_hp}"/>
+      <GetCurrentPose current_pose="{current_pose}"/>
+      <GetCurrentRegion current_pose="{current_pose}" region="{current_region}"/>
       <WhileDoElse>
-        <IsGameTime name="IsGameStart"
-                    message="{game_progress}"
-                    game_progress="4"/>
-
-        <ReactiveSequence>
-          <NonBlockingRateController hz="10">
-            <IfThenElse>
-              <SubTree ID="IsNearCenterByAlliance"
-                       _autoremap="true"/>
-              <SendSpin name="SpinNear"
-                        is_spin="true"
-                        spin_velocity="4.5"
-                        topic_name="/cmd_vel_wz"/>
-              <SendSpin name="SpinFar"
-                        is_spin="false"
-                        topic_name="/cmd_vel_wz"/>
-            </IfThenElse>
-          </NonBlockingRateController>
-
-          <WhileDoElse>
-            <IsRetreat name="NeedRetreat"
-                       message="{feedback_robot_hp}"
-                       hp_threshold_retreat="110"
-                       hp_threshold_recover="400"/>
-
-            <Sequence>
-              <IfThenElse>
-                <Inverter>
-                  <IsOnOwnSide current_location="{current_location}"
-                               robot_id="0"
-                               red_exit_x="3.5"/>
-                </Inverter>
-                <SubTree ID="TraverseTunnel"
-                         _autoremap="true"/>
-                <AlwaysSuccess/>
-              </IfThenElse>
-              <!-- World (5.0,-3.0) is map (0.0,0.0). -->
-              <SendGoal name="ReturnToSupply"
-                        goal_pose="0.0;0.0;0;0;0;0;1"
-                        action_name="/navigate_to_pose"
-                        move="false"
-                        length="1.0"/>
-            </Sequence>
-
-            <Sequence>
-              <IfThenElse>
-                <IsOnOwnSide current_location="{current_location}"
-                             robot_id="0"
-                             red_exit_x="3.5"/>
-                <SubTree ID="TraverseTunnel"
-                         _autoremap="true"/>
-                <AlwaysSuccess/>
-              </IfThenElse>
-
-              <!-- The remainder preserves v2's deduction/Attack/Back/Center policy. -->
-              <ReactiveFallback>
-                <Sequence>
-                  <IsHPdeduction name="CheckDeduction"
-                                 message="{feedback_robot_hp}"/>
-                  <SubTree ID="NavigateByAlliance"
-                           red_goal="0.0;1.0;0;0;0;0;1"
-                           blue_goal="-5.0;4.0;0;0;0;0;1"
-                           move="true"
-                           length="1.0"
-                           _autoremap="true"/>
-                </Sequence>
-
-                <Sequence>
-                  <Fallback>
-                    <Timeout msec="5000">
-                      <SubTree ID="NavigateByAlliance"
-                               red_goal="-1.0;0.75;0;0;0;0;1"
-                               blue_goal="-6.0;3.75;0;0;0;0;1"
-                               move="false"
-                               length="1.0"
-                               _autoremap="true"/>
-                    </Timeout>
-                    <SubTree ID="NavigateByAlliance"
-                             red_goal="0.0;0.0;0;0;0;0;1"
-                             blue_goal="-5.0;3.0;0;0;0;0;1"
-                             move="true"
-                             length="1.0"
-                             _autoremap="true"/>
-                  </Fallback>
-                </Sequence>
-              </ReactiveFallback>
-            </Sequence>
-          </WhileDoElse>
-        </ReactiveSequence>
+        <IsGameTime message="{game_progress}" game_progress="4"/>
+        <WhileDoElse>
+          <IsRetreat message="{feedback_robot_hp}" hp_threshold_retreat="110" hp_threshold_recover="400"/>
+          <SubTree ID="LockedSemanticTask" task_type="return_supply"
+                   target_region="red_supply_zone" target_pose_id="red_supply" _autoremap="true"/>
+          <Sequence>
+            <SubTree ID="LockedSemanticTask" task_type="go_center"
+                     target_region="center_zone" target_pose_id="center_staging" _autoremap="true"/>
+          </Sequence>
+        </WhileDoElse>
         <AlwaysSuccess/>
       </WhileDoElse>
     </ReactiveSequence>
   </BehaviorTree>
 
+  <!-- A task transition halts this decorator and unlocks the route. While the
+       same task is active, Resolve/SelectSemanticRoute execute only once and
+       the selected normal/tunnel route remains fixed through completion. -->
+  <BehaviorTree ID="LockedSemanticTask">
+    <RunOnceUntilHalted>
+      <SubTree ID="RunSemanticTask" _autoremap="true"/>
+    </RunOnceUntilHalted>
+  </BehaviorTree>
+
+  <BehaviorTree ID="RunSemanticTask">
+    <Sequence>
+      <ResolveFieldPose semantic_pose="{target_pose_id}" goal_pose="{task_goal}"/>
+      <SelectSemanticRoute current_region="{current_region}" target_region="{target_region}"
+                           task_type="{task_type}" route_id="{route_id}"
+                           edge_list="{route_edges}" route_type="{route_type}"
+                           controller="{route_controller}"
+                           uses_tunnel="{uses_tunnel}" preparation_goal="{tunnel_preparation}"
+                           entry_path="{tunnel_entry_path}" tunnel_path="{tunnel_path}"/>
+      <SubTree ID="ExecuteSemanticRoute" _autoremap="true"/>
+    </Sequence>
+  </BehaviorTree>
+
+  <BehaviorTree ID="ExecuteSemanticRoute">
+    <IfThenElse>
+      <IsTunnelRoute uses_tunnel="{uses_tunnel}"/>
+      <Sequence>
+        <SubTree ID="TraverseTunnel" _autoremap="true"/>
+        <!-- Only the post-tunnel normal edge uses the global planner. -->
+        <SelectController controller_id="position_goal_checker" topic_name="/goal_checker_selector"/>
+        <SendGoal goal_pose="{task_goal}" action_name="/navigate_to_pose" move="false" length="1.0"/>
+      </Sequence>
+      <Sequence>
+        <SelectController controller_id="position_goal_checker" topic_name="/goal_checker_selector"/>
+        <SendGoal goal_pose="{task_goal}" action_name="/navigate_to_pose" move="false" length="1.0"/>
+      </Sequence>
+    </IfThenElse>
+  </BehaviorTree>
+
   <BehaviorTree ID="TraverseTunnel">
-    <!-- Select the tunnel edge before asking Nav2 to generate any global path. -->
     <RetryUntilSuccessful num_attempts="2">
       <Sequence>
-        <SelectTunnelDirection current_location="{current_location}"
-                               robot_id="0"
-                               preparation_goal="{tunnel_preparation}"
-                               entry_goal="{tunnel_entry}"
-                               entry_path="{tunnel_entry_path}"
-                               traverse_path="{tunnel_path}"
-                               retreat_path="{tunnel_retreat_path}"/>
-
-        <!-- Soft alignment happens outside the tunnel. A successful goal
-             means both 0.12 m position and 0.27 rad yaw tolerances passed. -->
-        <SelectController controller_id="FollowPath"
-                          topic_name="/controller_selector"/>
+        <SelectController controller_id="FollowPath" topic_name="/controller_selector"/>
+        <!-- Preparation remains the only NavigateToPose goal that requires
+             heading alignment before entering the narrow approach. -->
+        <SelectController controller_id="general_goal_checker" topic_name="/goal_checker_selector"/>
         <Timeout msec="12000">
-          <SendGoal name="TunnelPreparationAndAlign"
-                    goal_pose="{tunnel_preparation}"
-                    action_name="/navigate_to_pose"
-                    move="false"
-                    length="1.0"/>
+          <SendGoal goal_pose="{tunnel_preparation}" action_name="/navigate_to_pose" move="false" length="1.0"/>
         </Timeout>
-
-        <!-- The preparation pose is a 0.12 m handoff region, not a second
-             exact navigation target. Follow the ordered measured approach. -->
         <Timeout msec="10000">
-          <FollowTunnelPath name="TunnelOrderedEntry"
-                            path="{tunnel_entry_path}"
-                            action_name="/follow_path"
-                            controller_id="FollowPath"
-                            goal_checker_id="general_goal_checker"/>
+          <FollowTunnelPath path="{tunnel_entry_path}" action_name="/follow_path"
+                            controller_id="FollowPath" goal_checker_id="tunnel_handoff_checker"/>
         </Timeout>
-
-        <!-- Reaching this point commits the traversal. /follow_path bypasses
-             the global planner and bt_navigator recovery tree, so the ordered
-             centerline cannot be replaced by a road route or a Spin recovery. -->
+        <!-- From here traversal is committed: no global planner and no Spin. -->
         <Fallback>
           <Sequence>
             <Timeout msec="30000">
-              <FollowTunnelPath name="CommittedTunnelTraversal"
-                                path="{tunnel_path}"
-                                action_name="/follow_path"
-                                controller_id="TunnelController"
-                                goal_checker_id="general_goal_checker"/>
+              <FollowTunnelPath path="{tunnel_path}" action_name="/follow_path"
+                                controller_id="TunnelController" goal_checker_id="tunnel_handoff_checker"/>
             </Timeout>
-            <SelectController controller_id="FollowPath"
-                              topic_name="/controller_selector"/>
+            <SelectController controller_id="FollowPath" topic_name="/controller_selector"/>
           </Sequence>
-
-          <!-- Failure recovery keeps the committed heading and follows the
-               same centerline back to the selected entrance preparation point. -->
           <Sequence>
+            <!-- Use the one root CurrentPose snapshot; do not create another
+                 TF listener inside the recovery branch. -->
+            <BuildTunnelRetreatPath current_pose="{current_pose}" tunnel_path="{tunnel_path}"
+                                    preparation_goal="{tunnel_preparation}"
+                                    retreat_path="{tunnel_retreat_path}"/>
             <Timeout msec="30000">
-              <FollowTunnelPath name="TunnelStraightRetreat"
-                                path="{tunnel_retreat_path}"
-                                action_name="/follow_path"
-                                controller_id="TunnelController"
-                                goal_checker_id="general_goal_checker"/>
+              <FollowTunnelPath path="{tunnel_retreat_path}" action_name="/follow_path"
+                                controller_id="TunnelController" goal_checker_id="tunnel_handoff_checker"/>
             </Timeout>
-            <SelectController controller_id="FollowPath"
-                              topic_name="/controller_selector"/>
+            <SelectController controller_id="FollowPath" topic_name="/controller_selector"/>
             <AlwaysFailure/>
           </Sequence>
-
-          <!-- Also restore the ordinary selector if the retreat itself fails. -->
           <Sequence>
-            <SelectController controller_id="FollowPath"
-                              topic_name="/controller_selector"/>
+            <SelectController controller_id="FollowPath" topic_name="/controller_selector"/>
             <AlwaysFailure/>
           </Sequence>
         </Fallback>
       </Sequence>
     </RetryUntilSuccessful>
   </BehaviorTree>
-
-  <BehaviorTree ID="NavigateByAlliance">
-    <SendGoal name="AllianceGoalRed"
-              goal_pose="{red_goal}"
-              action_name="/navigate_to_pose"
-              move="{move}"
-              length="{length}"/>
-  </BehaviorTree>
-
-  <BehaviorTree ID="IsNearCenterByAlliance">
-    <IsNearGoal name="CheckNearCenterRed"
-                current_location="{current_location}"
-                goal_pose="0.0;0.0;0;0;0;0;1"
-                distance_threshold="2.0"/>
-  </BehaviorTree>
-
-  <TreeNodesModel>
-    <Action ID="SelectController">
-      <input_port name="controller_id"/>
-      <input_port name="topic_name"/>
-    </Action>
-    <Action ID="SelectTunnelDirection">
-      <input_port name="current_location"/>
-      <input_port name="robot_id"/>
-      <output_port name="preparation_goal"/>
-      <output_port name="entry_goal"/>
-      <output_port name="entry_path"/>
-      <output_port name="traverse_path"/>
-      <output_port name="retreat_path"/>
-    </Action>
-    <Action ID="FollowTunnelPath">
-      <input_port name="path"/>
-      <input_port name="action_name" default="/follow_path"/>
-      <input_port name="controller_id" default="TunnelController"/>
-      <input_port name="goal_checker_id" default="general_goal_checker"/>
-    </Action>
-    <Condition ID="IsOnOwnSide">
-      <input_port name="current_location"/>
-      <input_port name="robot_id"/>
-      <input_port name="red_exit_x" default="3.5"/>
-      <input_port name="blue_exit_x" default="-3.5"/>
-    </Condition>
-    <Decorator ID="NonBlockingRateController">
-      <input_port name="hz" default="10"/>
-    </Decorator>
-    <Decorator ID="RunOnceUntilHalted"/>
-  </TreeNodesModel>
 </root>

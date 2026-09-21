@@ -100,7 +100,7 @@ controller_server:
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 1.0 #wwt
     progress_checker_plugin: "progress_checker"
-    goal_checker_plugins: ["general_goal_checker"] # "precise_goal_checker"
+    goal_checker_plugins: ["general_goal_checker", "tunnel_handoff_checker", "position_goal_checker"]
     controller_plugins: ["FollowPath", "TunnelController"]
     progress_checker:
       # PoseProgressChecker counts either translation or rotation as progress.
@@ -114,6 +114,21 @@ controller_server:
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.12    # Tunnel preparation handoff and terminal yaw activation radius
       yaw_goal_tolerance: 0.27  # Preparation-point yaw handoff tolerance
+    # Used only for FollowPath segment handoffs. It preserves the measured
+    # path's heading while eliminating terminal in-place yaw correction.
+    tunnel_handoff_checker:
+      stateful: False
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.12
+      yaw_goal_tolerance: 6.283185307179586
+    # Semantic task endpoints (center/supply) describe an area, not a chassis
+    # heading. This prevents a completed center arrival from stalling on a
+    # final in-place rotation beside the tunnel mouth.
+    position_goal_checker:
+      stateful: False
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.12
+      yaw_goal_tolerance: 6.283185307179586
     FollowPath:
       plugin: teb_local_planner::TebLocalPlannerROS
       # https://github.com/rst-tu-dortmund/teb_local_planner/tree/ros2-master
@@ -145,11 +160,11 @@ controller_server:
       #*******************************************************************************
       # Robot
       #*******************************************************************************
-      max_vel_x: 5.0     #thth        #最大平移速度
-      max_vel_x_backwards: 1.5         #最大后退速度
-      max_vel_theta: 1.5     #thth         #最大转向角速度
-      acc_lim_x: 3.0       #thth            #最大平移加速度
-      acc_lim_theta: 1.0    #thth                #最大角加速度
+      max_vel_x: 1.4     # Ordinary-navigation translational speed limit
+      max_vel_x_backwards: 0.7
+      max_vel_theta: 1.8
+      acc_lim_x: 1.2
+      acc_lim_theta: 1.8
       is_footprint_dynamic: True           #如果为真，在检查轨迹可行性之前更新 footprint
       footprint_model:
         type: "circular"
@@ -167,16 +182,16 @@ controller_server:
       #*******************************************************************************
       # Robot/Omni 此部分参数仅适用于全方位移动机器人
       #*******************************************************************************
-      max_vel_y: 5.0   # thth       #最大横移速度
-      acc_lim_y: 1.2   # thth        #最大横移加速度
+      max_vel_y: 1.4
+      acc_lim_y: 1.2
 
       #*******************************************************************************
       # GoalTolerance 目标容差
       #*******************************************************************************
       free_goal_vel: False      #允许机器人以最大速度驶向目的地，为False时，车到达终点时的目标速度为0；
-      terminal_yaw_kp: 1.5
+      terminal_yaw_kp: 2.0
       terminal_yaw_min_vel: 0.08
-      terminal_yaw_max_vel: 0.50
+      terminal_yaw_max_vel: 1.2
 
       #*******************************************************************************
       # Obstacles 障碍物
@@ -286,13 +301,14 @@ controller_server:
       publish_feedback: False
       global_plan_viapoint_sep: 0.20
       via_points_ordered: True
-      max_vel_x: 0.30
-      max_vel_x_backwards: 0.20
-      max_vel_y: 0.30
-      max_vel_theta: 0.50
-      acc_lim_x: 0.50
-      acc_lim_y: 0.50
-      acc_lim_theta: 0.50
+      # Tunnel forward speed: about 85% of FollowPath's 1.4 m/s limit.
+      max_vel_x: 1.20
+      max_vel_x_backwards: 0.30
+      max_vel_y: 0.80
+      max_vel_theta: 0.90
+      acc_lim_x: 1.20
+      acc_lim_y: 0.90
+      acc_lim_theta: 0.90
       is_footprint_dynamic: True
       footprint_model:
         type: "circular"
@@ -316,7 +332,9 @@ controller_server:
       obstacle_cost_exponent: 2.0
       weight_obstacle: 30.0
       weight_viapoint: 20.0
-      weight_optimaltime: 0.05
+      # Match FollowPath's time objective so 0.85 is reachable rather than
+      # merely being a theoretical saturation ceiling.
+      weight_optimaltime: 1.0
       weight_shortest_path: 0.2
       weight_adapt_factor: 2.0
       enable_homotopy_class_planning: False
@@ -474,11 +492,11 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False 
     feedback: "OPEN_LOOP" 
-    max_velocity: [5.0, 5.0, 1.5]  #thth 最大速度
-    min_velocity: [-5.0, -5.0, -1.5] #thth 最小速度
+    max_velocity: [1.4, 1.4, 1.8]
+    min_velocity: [-1.4, -1.4, -1.8]
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
-    max_decel: [-3.0, -3.0, -1.5]   # smoother同步
-    max_accel: [3.0, 3.0, 1.5]
+    max_decel: [-1.2, -1.2, -1.8]
+    max_accel: [1.2, 1.2, 1.8]
     odom_topic: "Odometry"
     odom_duration: 0.1

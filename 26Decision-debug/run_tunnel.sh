@@ -28,6 +28,9 @@ for _ in $(seq 1 120); do
      [[ "${controller_state}" == *active* ]] && \
      [[ "${navigate_info}" == *"Action servers: 1"* ]] && \
      [[ "${follow_info}" == *"Action servers: 1"* ]]; then
+    # FollowPath is limited to 1.4 m/s in the simulation profile. Keep the
+    # tunnel controller at roughly 85% of that limit.
+    ros2 param set /controller_server TunnelController.max_vel_x 1.20
     echo "Nav2 is ready. Starting RMUL 2027 tunnel behavior tree."
     exec ros2 launch rm_behavior_tree rm_behavior_tree.launch.py \
       style:=tunnel.xml \

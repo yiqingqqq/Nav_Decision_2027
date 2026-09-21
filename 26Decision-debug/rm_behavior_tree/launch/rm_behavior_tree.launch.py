@@ -12,6 +12,7 @@ def generate_launch_description():
     # tunnel workflow explicitly supplies tunnel.xml via run_tunnel.sh.
     style = LaunchConfiguration('style', default='v2.xml')
     use_sim_time = LaunchConfiguration('use_sim_time', default='False')
+    semantic_config = os.path.join(bt_config_dir, 'RMUL2027_semantic_map.yaml')
 
     bt_xml_dir = PathJoinSubstitution([bt_config_dir, style])
 
@@ -26,6 +27,7 @@ def generate_launch_description():
             {
               'style': bt_xml_dir,
               'use_sim_time': use_sim_time,
+              'semantic_config': semantic_config,
             }
         ]
     )

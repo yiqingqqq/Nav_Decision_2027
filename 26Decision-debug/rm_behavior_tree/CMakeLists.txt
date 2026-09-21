@@ -7,6 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find dependencies 
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
+find_package(yaml-cpp REQUIRED)
 
 # Build
 set(THIS_PACKAGE_INCLUDE_DEPENDS
@@ -28,7 +29,11 @@ endfunction()
 
 ament_auto_add_executable(rm_behavior_tree
     src/rm_behavior_tree.cpp
+    src/semantic_navigation.cpp
+    src/semantic_bt_nodes.cpp
 )
+target_include_directories(rm_behavior_tree PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/plugins/include)
+target_link_libraries(rm_behavior_tree yaml-cpp)
 
 # Actions
 ament_auto_add_library(send_goal SHARED
@@ -70,11 +75,6 @@ ament_auto_add_library(select_controller SHARED
     plugins/action/select_controller.cpp
 )
 add_target_dependencies(select_controller)
-
-ament_auto_add_library(select_tunnel_direction SHARED
-    plugins/action/select_tunnel_direction.cpp
-)
-add_target_dependencies(select_tunnel_direction)
 
 ament_auto_add_library(get_current_location SHARED
     plugins/action/get_current_location.cpp
@@ -127,12 +127,6 @@ ament_auto_add_library(is_robot_id SHARED
     plugins/condition/is_robot_id.cpp
 )
 add_target_dependencies(is_robot_id)
-
-ament_auto_add_library(is_on_own_side SHARED
-    plugins/condition/is_on_own_side.cpp
-)
-add_target_dependencies(is_on_own_side)
-
 
 ament_auto_package(
   INSTALL_TO_SHARE

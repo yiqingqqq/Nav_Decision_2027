@@ -1,0 +1,79 @@
+# Authoritative convention: p_map = map_T_field * p_field.
+# This is the single replacement for SelectTunnelDirection::worldToMap.
+frame_id: map
+map_T_field: {x: 5.0, y: -3.0, yaw: -3.141592653589793}
+
+# Measurements below are Gazebo/world coordinates and are converted exactly
+# once when loaded.
+poses:
+  red_supply: {x: 5.0, y: -3.0, yaw: 3.141592653589793}
+  tunnel_prepare_a: {x: 4.40, y: -3.20, yaw: 3.141592653589793}
+  tunnel_approach_a0: {x: 4.40, y: -3.20, yaw: 3.141592653589793}
+  tunnel_approach_a1: {x: 4.28, y: -3.24, yaw: 3.141592653589793}
+  tunnel_approach_a2: {x: 4.16, y: -3.31, yaw: 3.141592653589793}
+  tunnel_approach_a3: {x: 4.00, y: -3.40, yaw: 3.141592653589793}
+  tunnel_a: {x: 4.00, y: -3.60, yaw: 3.141592653589793}
+  tunnel_mid: {x: 2.50, y: -3.60, yaw: 3.141592653589793}
+  tunnel_b: {x: 0.50, y: -3.60, yaw: 3.141592653589793}
+  # Exit points are outside the tunnel mouth.  They are the controller
+  # handoff locations, not task waypoints.
+  tunnel_exit_a: {x: 4.00, y: -3.20, yaw: 3.141592653589793}
+  tunnel_exit_b: {x: 0.50, y: -3.20, yaw: 3.141592653589793}
+  tunnel_prepare_b: {x: 0.10, y: -3.20, yaw: 0.0}
+  tunnel_approach_b0: {x: 0.10, y: -3.20, yaw: 0.0}
+  tunnel_approach_b1: {x: 0.22, y: -3.24, yaw: 0.0}
+  tunnel_approach_b2: {x: 0.34, y: -3.31, yaw: 0.0}
+  tunnel_approach_b3: {x: 0.50, y: -3.40, yaw: 0.0}
+  # Competition center in Gazebo/world coordinates.
+  center_staging: {x: 0.00, y: 0.00, yaw: 0.0}
+  patrol_attack: {x: 5.00, y: -4.00, yaw: 0.0}
+  patrol_back: {x: 6.00, y: -3.75, yaw: 0.0}
+
+# Higher priority wins when regions overlap at intentional handoff boundaries.
+regions:
+  red_supply_zone: {shape: circle, center: [5.0, -3.0], radius: 0.35, priority: 100}
+  tunnel_preparation_a: {shape: circle, center: [4.40, -3.20], radius: 0.12, priority: 90}
+  tunnel_entry_a: {shape: circle, center: [4.00, -3.60], radius: 0.18, priority: 95}
+  tunnel_entry_b: {shape: circle, center: [0.50, -3.60], radius: 0.18, priority: 95}
+  tunnel_preparation_b: {shape: circle, center: [0.10, -3.20], radius: 0.12, priority: 90}
+  tunnel: {shape: rectangle, min: [0.50, -3.82], max: [4.00, -3.42], priority: 80}
+  center_zone: {shape: circle, center: [0.00, 0.00], radius: 0.35, priority: 70}
+  center_side: {shape: rectangle, min: [0.0, -4.5], max: [1.30, -1.5], priority: 20}
+  own_side: {shape: rectangle, min: [3.20, -4.5], max: [5.5, -1.5], priority: 20}
+  normal_road: {shape: polygon, points: [[-1.0, -6.0], [6.0, -6.0], [6.0, 1.0], [-1.0, 1.0]], priority: 1}
+
+region_nodes:
+  red_supply_zone: red_supply
+  own_side: red_supply
+  tunnel_preparation_a: tunnel_a
+  tunnel_entry_a: tunnel_a
+  tunnel: tunnel_a
+  tunnel_entry_b: tunnel_b
+  tunnel_preparation_b: tunnel_b
+  center_side: center
+  center_zone: center
+
+nodes:
+  red_supply: {pose: red_supply}
+  tunnel_a: {pose: tunnel_a}
+  tunnel_b: {pose: tunnel_b}
+  center: {pose: center_staging}
+
+edges:
+  - {id: supply_to_tunnel, from: red_supply, to: tunnel_a, type: normal, cost: 1.0, bidirectional: true}
+  - id: tunnel_crossing
+    from: tunnel_a
+    to: tunnel_b
+    type: tunnel
+    cost: 1.0
+    bidirectional: true
+    controller: TunnelController
+    preparation_from: tunnel_prepare_a
+    preparation_to: tunnel_prepare_b
+    approach_from: [tunnel_approach_a0, tunnel_approach_a1, tunnel_approach_a2, tunnel_approach_a3]
+    approach_to: [tunnel_approach_b0, tunnel_approach_b1, tunnel_approach_b2, tunnel_approach_b3]
+    centerline: [tunnel_a, tunnel_mid, tunnel_b]
+    exit_from: tunnel_exit_a
+    exit_to: tunnel_exit_b
+  - {id: tunnel_to_center, from: tunnel_b, to: center, type: normal, cost: 1.0, bidirectional: true}
+  - {id: normal_road, from: red_supply, to: center, type: normal, cost: 2.0, bidirectional: true}

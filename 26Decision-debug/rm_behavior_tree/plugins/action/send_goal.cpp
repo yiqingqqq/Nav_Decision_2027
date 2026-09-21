@@ -35,6 +35,10 @@ bool SendGoalAction::setGoal(nav2_msgs::action::NavigateToPose::Goal & goal)
     goal.pose.pose.position.y += dis(gen);
   }
 
+  RCLCPP_INFO(
+    logger(), "[%s] submit NavigateToPose: (%.2f, %.2f)", name().c_str(),
+    goal.pose.pose.position.x, goal.pose.pose.position.y);
+
   std::cout << "Goal_pose: [ "
     << std::fixed << std::setprecision(1)
     << goal.pose.pose.position.x << ", "

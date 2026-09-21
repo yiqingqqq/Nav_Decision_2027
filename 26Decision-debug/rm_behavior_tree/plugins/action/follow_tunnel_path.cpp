@@ -36,11 +36,18 @@ bool FollowTunnelPathAction::setGoal(nav2_msgs::action::FollowPath::Goal & goal)
   }
   goal.controller_id = controller_id.value();
   goal.goal_checker_id = goal_checker_id.value();
+  RCLCPP_INFO(
+    logger(), "[%s] submit FollowPath: controller=%s, checker=%s, poses=%zu",
+    name().c_str(), goal.controller_id.c_str(), goal.goal_checker_id.c_str(),
+    goal.path.poses.size());
   return true;
 }
 
 BT::NodeStatus FollowTunnelPathAction::onResultReceived(const WrappedResult & result)
 {
+  RCLCPP_INFO(
+    logger(), "[%s] FollowPath result: %s", name().c_str(),
+    result.code == rclcpp_action::ResultCode::SUCCEEDED ? "succeeded" : "failed");
   return result.code == rclcpp_action::ResultCode::SUCCEEDED ?
          BT::NodeStatus::SUCCESS : BT::NodeStatus::FAILURE;
 }
