@@ -1,4 +1,5 @@
 #include "action/send_goal.hpp"
+#include "action/heading_policy.hpp"
 #include "bt_conversions.hpp"
 #include <random>
 
@@ -9,6 +10,10 @@ SendGoalAction::SendGoalAction(
   const std::string & name, const BT::NodeConfig & conf, const BT::RosNodeParams & params)
 : RosActionNode<nav2_msgs::action::NavigateToPose>(name, conf, params)
 {
+  if (auto node = params.nh.lock()) {
+    goal_checker_pub_ = node->create_publisher<std_msgs::msg::String>(
+      "/goal_checker_selector", rclcpp::QoS(1).transient_local().reliable());
+  }
 }
 
 bool SendGoalAction::setGoal(nav2_msgs::action::NavigateToPose::Goal & goal)
@@ -21,6 +26,30 @@ bool SendGoalAction::setGoal(nav2_msgs::action::NavigateToPose::Goal & goal)
   goal.pose = res.value();
   goal.pose.header.frame_id = "map";
   goal.pose.header.stamp = rclcpp::Clock(RCL_ROS_TIME).now();
+
+  const auto policy = getInput<std::string>("heading_policy");
+  if (!policy) {
+    RCLCPP_ERROR(logger(), "error reading port [heading_policy]");
+    return false;
+  }
+  std::optional<geometry_msgs::msg::PoseStamped> current;
+  if (policy.value() == "hold") {
+    const auto pose = getInput<geometry_msgs::msg::PoseStamped>("current_pose");
+    if (pose) current = pose.value();
+  }
+  try {
+    applyHeadingPolicy(goal.pose, policy.value(), current);
+  } catch (const std::invalid_argument & e) {
+    RCLCPP_ERROR(logger(), "Invalid navigation heading: %s", e.what());
+    return false;
+  }
+
+  std_msgs::msg::String checker;
+  const auto checker_override = getInput<std::string>("goal_checker_id");
+  checker.data = checker_override && !checker_override->empty() ? checker_override.value() :
+    (policy.value() == "hold" ? "position_goal_checker" : "general_goal_checker");
+  if (!goal_checker_pub_) return false;
+  goal_checker_pub_->publish(checker);
 
   auto move_opt = getInput<bool>("move");
   double length = 1.0;
@@ -36,8 +65,10 @@ bool SendGoalAction::setGoal(nav2_msgs::action::NavigateToPose::Goal & goal)
   }
 
   RCLCPP_INFO(
-    logger(), "[%s] submit NavigateToPose: (%.2f, %.2f)", name().c_str(),
-    goal.pose.pose.position.x, goal.pose.pose.position.y);
+    logger(), "[%s] submit NavigateToPose: (%.2f, %.2f), heading_policy=%s, yaw=%.3f",
+    name().c_str(), goal.pose.pose.position.x, goal.pose.pose.position.y,
+    policy.value().c_str(),
+    2.0 * std::atan2(goal.pose.pose.orientation.z, goal.pose.pose.orientation.w));
 
   std::cout << "Goal_pose: [ "
     << std::fixed << std::setprecision(1)

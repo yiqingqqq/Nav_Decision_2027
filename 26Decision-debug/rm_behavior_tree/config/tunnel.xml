@@ -69,7 +69,8 @@
              heading alignment before entering the narrow approach. -->
         <SelectController controller_id="general_goal_checker" topic_name="/goal_checker_selector"/>
         <Timeout msec="12000">
-          <SendGoal goal_pose="{tunnel_preparation}" action_name="/navigate_to_pose" move="false" length="1.0"/>
+          <SendGoal goal_pose="{tunnel_preparation}" heading_policy="explicit"
+                    action_name="/navigate_to_pose" move="false" length="1.0"/>
         </Timeout>
         <Timeout msec="10000">
           <FollowTunnelPath path="{tunnel_entry_path}" action_name="/follow_path"

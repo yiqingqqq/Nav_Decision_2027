@@ -1,0 +1,129 @@
+diff --git a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/include/teb_local_planner/teb_config.h b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/include/teb_local_planner/teb_config.h
+index 9a70daa..292899f 100755
+--- a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/include/teb_local_planner/teb_config.h
++++ b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/include/teb_local_planner/teb_config.h
+@@ -76,6 +76,7 @@ public:
+   //! Trajectory related parameters
+   struct Trajectory
+   {
++    double goal_heading_weight{0.0}; //!< >0: use final goal yaw throughout the path and track it during optimization.
+     double teb_autosize; //!< Enable automatic resizing of the trajectory w.r.t to the temporal resolution (recommended)
+     double dt_ref; //!< Desired temporal resolution of the trajectory (should be in the magniture of the underlying control rate)
+     double dt_hysteresis; //!< Hysteresis for automatic resizing depending on the current temporal resolution (dt): usually 10% of dt_ref
+diff --git a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_config.cpp b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_config.cpp
+index 8123efd..4925da1 100755
+--- a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_config.cpp
++++ b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_config.cpp
+@@ -54,6 +54,7 @@ void TebConfig::declareParameters(const nav2_util::LifecycleNode::SharedPtr nh,
+   declare_parameter_if_not_declared(nh, name + "." + "dt_hysteresis", rclcpp::ParameterValue(trajectory.dt_hysteresis));
+   declare_parameter_if_not_declared(nh, name + "." + "min_samples", rclcpp::ParameterValue(trajectory.min_samples));
+   declare_parameter_if_not_declared(nh, name + "." + "max_samples", rclcpp::ParameterValue(trajectory.max_samples));
++  declare_parameter_if_not_declared(nh, name + ".goal_heading_weight", rclcpp::ParameterValue(trajectory.goal_heading_weight));
+   declare_parameter_if_not_declared(nh, name + "." + "global_plan_overwrite_orientation", rclcpp::ParameterValue(trajectory.global_plan_overwrite_orientation));
+   declare_parameter_if_not_declared(nh, name + "." + "allow_init_with_backwards_motion", rclcpp::ParameterValue(trajectory.allow_init_with_backwards_motion));
+   declare_parameter_if_not_declared(nh, name + "." + "global_plan_viapoint_sep", rclcpp::ParameterValue(trajectory.global_plan_viapoint_sep));
+@@ -181,6 +182,7 @@ void TebConfig::loadRosParamFromNodeHandle(const nav2_util::LifecycleNode::Share
+   nh->get_parameter_or(name + "." + "dt_hysteresis", trajectory.dt_hysteresis, trajectory.dt_hysteresis);
+   nh->get_parameter_or(name + "." + "min_samples", trajectory.min_samples, trajectory.min_samples);
+   nh->get_parameter_or(name + "." + "max_samples", trajectory.max_samples, trajectory.max_samples);
++  nh->get_parameter_or(name + ".goal_heading_weight", trajectory.goal_heading_weight, trajectory.goal_heading_weight);
+   nh->get_parameter_or(name + "." + "global_plan_overwrite_orientation", trajectory.global_plan_overwrite_orientation, trajectory.global_plan_overwrite_orientation);
+   nh->get_parameter_or(name + "." + "allow_init_with_backwards_motion", trajectory.allow_init_with_backwards_motion, trajectory.allow_init_with_backwards_motion);
+   nh->get_parameter_or(name + "." + "global_plan_viapoint_sep", trajectory.global_plan_viapoint_sep, trajectory.global_plan_viapoint_sep);
+@@ -446,7 +448,15 @@ rcl_interfaces::msg::SetParametersResult
+ 
+     if (type == rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE) {
+       // Trajectory
+-      if (name == node_name + ".teb_autosize") {
++      if (name == node_name + ".goal_heading_weight") {
++        const double value = parameter.as_double();
++        if (!std::isfinite(value) || value < 0.0) {
++          result.successful = false;
++          result.reason = "goal_heading_weight must be finite and nonnegative";
++          return result;
++        }
++        trajectory.goal_heading_weight = value;
++      } else if (name == node_name + ".teb_autosize") {
+         trajectory.teb_autosize = parameter.as_double();
+       } else if (name == node_name + ".dt_ref") {
+         trajectory.dt_ref = parameter.as_double();
+diff --git a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_local_planner_ros.cpp b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_local_planner_ros.cpp
+index 12fd83e..6a59899 100755
+--- a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_local_planner_ros.cpp
++++ b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/teb_local_planner_ros.cpp
+@@ -243,6 +243,13 @@ void TebLocalPlannerROS::setPlan(const nav_msgs::msg::Path & orig_global_plan)
+     global_plan_.push_back(out_pose);
+   }
+ 
++  // The decision layer resolves hold/explicit policy into the final goal yaw.
++  // Navfn's intermediate yaw values do not encode that policy.
++  if (cfg_->trajectory.goal_heading_weight > 0.0 && !global_plan_.empty()) {
++    const auto heading = global_plan_.back().pose.orientation;
++    for (auto & point : global_plan_) point.pose.orientation = heading;
++  }
++
+   // we do not clear the local planner here, since setPlan is called frequently whenever the global planner updates the plan.
+   // the local planner checks whether it is required to reinitialize the trajectory or not within each velocity computation step.  
+             
+@@ -322,7 +329,8 @@ geometry_msgs::msg::TwistStamped TebLocalPlannerROS::computeVelocityCommands(con
+   const geometry_msgs::msg::PoseStamped &goal_point = transformed_plan.back();
+   robot_goal_.x() = goal_point.pose.position.x;
+   robot_goal_.y() = goal_point.pose.position.y;
+-  if (cfg_->trajectory.global_plan_overwrite_orientation)
++  if (cfg_->trajectory.global_plan_overwrite_orientation &&
++      cfg_->trajectory.goal_heading_weight <= 0.0)
+   {
+     robot_goal_.theta() = estimateLocalGoalOrientation(global_plan_, goal_point, goal_idx, tf_plan_to_global);
+     // overwrite/update goal orientation of the transformed plan with the actual goal (enable using the plan as initialization)
+@@ -353,6 +361,9 @@ geometry_msgs::msg::TwistStamped TebLocalPlannerROS::computeVelocityCommands(con
+       terminal_yaw_kp_ * std::abs(yaw_error),
+       terminal_yaw_min_vel_, terminal_yaw_max_vel_);
+     cmd_vel.twist.angular.z = std::copysign(angular_speed, yaw_error);
++    // The optimization below is bypassed; clear the previous trajectory.
++    TimedElasticBand empty_trajectory;
++    visualization_->publishLocalPlanAndPoses(empty_trajectory);
+     last_cmd_ = cmd_vel.twist;
+     return cmd_vel;
+   }
+diff --git a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/optimal_planner.cpp b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/optimal_planner.cpp
+index 1ab883f..13f2f13 100755
+--- a/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/optimal_planner.cpp
++++ b/26Navigation-master/src/rm_navigation/teb_local_planner/teb_local_planner/src/optimal_planner.cpp
+@@ -60,6 +60,17 @@
+ namespace teb_local_planner
+ {
+ 
++// Track chassis heading independently from translation/path tangent.
++class EdgeGoalHeading : public BaseTebUnaryEdge<1, double, VertexPose>
++{
++public:
++  void computeError() override
++  {
++    const auto * pose = static_cast<const VertexPose *>(_vertices[0]);
++    _error[0] = g2o::normalize_theta(pose->theta() - _measurement);
++  }
++};
++
+ // ============== Implementation ===================
+ 
+ TebOptimalPlanner::TebOptimalPlanner() : cfg_(nullptr), obstacles_(NULL), via_points_(NULL), cost_(HUGE_VAL), prefer_rotdir_(RotType::none),
+@@ -345,6 +356,19 @@ bool TebOptimalPlanner::buildGraph(double weight_multiplier)
+     AddEdgesDynamicObstacles();
+   
+   AddEdgesViaPoints();
++
++  if (cfg_->trajectory.goal_heading_weight > 0.0) {
++    Eigen::Matrix<double, 1, 1> information;
++    information(0, 0) = cfg_->trajectory.goal_heading_weight;
++    for (int i = 1; i + 1 < teb_.sizePoses(); ++i) {
++      auto * edge = new EdgeGoalHeading;
++      edge->setVertex(0, teb_.PoseVertex(i));
++      edge->setMeasurement(teb_.BackPose().theta());
++      edge->setInformation(information);
++      edge->setTebConfig(*cfg_);
++      optimizer_->addEdge(edge);
++    }
++  }
+   
+   AddEdgesVelocity();
+   

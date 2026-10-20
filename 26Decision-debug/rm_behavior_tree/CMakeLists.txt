@@ -128,6 +128,13 @@ ament_auto_add_library(is_robot_id SHARED
 )
 add_target_dependencies(is_robot_id)
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_heading_policy test/test_heading_policy.cpp)
+  target_include_directories(test_heading_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/plugins/include)
+  ament_target_dependencies(test_heading_policy geometry_msgs)
+endif()
+
 ament_auto_package(
   INSTALL_TO_SHARE
     launch

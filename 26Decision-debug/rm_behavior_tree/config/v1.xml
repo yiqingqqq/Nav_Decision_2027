@@ -3,6 +3,7 @@
       main_tree_to_execute="BehaviorTree">
   <BehaviorTree ID="BehaviorTree">
     <ReactiveSequence>
+      <GetCurrentPose current_pose="{current_pose}"/>
       <SubGameStatus topic_name="/feedback_game_progress"
                      game_progress="{game_progress}"/>
       <SubRobotStatus topic_name="/feedback_robot_hp"
@@ -105,6 +106,8 @@
     </Condition>
 
     <Action ID="SendGoal" editable="true">
+      <input_port name="heading_policy" default="hold"/>
+      <input_port name="current_pose" default="{current_pose}"/>
       <input_port name="goal_pose" default="0;0;0;0;0;0;1"/>
       <input_port name="action_name" default="/navigate_to_pose"/>
       <input_port name="move" default="false"/>

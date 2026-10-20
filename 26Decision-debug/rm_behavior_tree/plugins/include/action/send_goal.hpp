@@ -4,6 +4,7 @@
 #include "behaviortree_ros2/bt_action_node.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "std_msgs/msg/string.hpp"
 
 namespace rm_behavior_tree
 {
@@ -18,6 +19,9 @@ public:
   {
     return {
       BT::InputPort<geometry_msgs::msg::PoseStamped>("goal_pose"),
+      BT::InputPort<std::string>("heading_policy", "hold", "hold current yaw or use explicit goal yaw"),
+      BT::InputPort<std::string>("goal_checker_id", "", "Optional goal checker override"),
+      BT::InputPort<geometry_msgs::msg::PoseStamped>("current_pose", "{current_pose}", "Live map-frame pose"),
       BT::InputPort<std::string>("action_name"),
       BT::InputPort<bool>("move"),
       BT::InputPort<double>("length")};
@@ -34,6 +38,9 @@ public:
   BT::NodeStatus onFeedback(const std::shared_ptr<const Feedback> feedback) override;
 
   BT::NodeStatus onFailure(BT::ActionNodeErrorCode error) override;
+
+private:
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr goal_checker_pub_;
 };
 }  // namespace rm_behavior_tree
 

@@ -31,6 +31,10 @@ for _ in $(seq 1 120); do
     # FollowPath is limited to 1.4 m/s in the simulation profile. Keep the
     # tunnel controller at roughly 85% of that limit.
     ros2 param set /controller_server TunnelController.max_vel_x 1.20
+    # Align TunnelController's kinematic policy with omnidirectional FollowPath.
+    ros2 param set /controller_server TunnelController.allow_init_with_backwards_motion true
+    ros2 param set /controller_server TunnelController.weight_kinematics_nh 0.0
+    ros2 param set /controller_server TunnelController.weight_kinematics_forward_drive 0.0
     echo "Nav2 is ready. Starting RMUL 2027 tunnel behavior tree."
     exec ros2 launch rm_behavior_tree rm_behavior_tree.launch.py \
       style:=tunnel.xml \
