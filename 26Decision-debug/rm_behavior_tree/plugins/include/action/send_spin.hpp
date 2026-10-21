@@ -3,29 +3,27 @@
 
 #include "behaviortree_ros2/bt_topic_pub_node.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/float32.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 
 namespace rm_behavior_tree
 {
 
-class SendSpinAction : public BT::RosTopicPubNode<std_msgs::msg::Float32>
+class SendSpinAction : public BT::RosTopicPubNode<std_msgs::msg::Float32MultiArray>
 {
 public:
   SendSpinAction(
     const std::string & name, const BT::NodeConfig & conf, const BT::RosNodeParams & params);
 
-  bool setMessage(std_msgs::msg::Float32 & msg) override;
+  bool setMessage(std_msgs::msg::Float32MultiArray & msg) override;
 
   static BT::PortsList providedPorts()
   {
     return providedBasicPorts({
-      BT::InputPort<bool>("is_spin"),        // 是否转动
-      BT::InputPort<float>("spin_velocity") // 转速 (rad/s)
+      BT::InputPort<bool>("is_spin"),        // true: take ownership of wz
+      BT::InputPort<float>("spin_velocity") // commanded spin velocity (rad/s)
     });
   }
 
-private:
-  // 匀速转动，不需要保存时间状态
 };
 
 }  // namespace rm_behavior_tree

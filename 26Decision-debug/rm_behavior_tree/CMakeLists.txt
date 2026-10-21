@@ -133,6 +133,12 @@ if(BUILD_TESTING)
   ament_add_gtest(test_heading_policy test/test_heading_policy.cpp)
   target_include_directories(test_heading_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/plugins/include)
   ament_target_dependencies(test_heading_policy geometry_msgs)
+  ament_add_gtest(test_action_cancellation test/test_action_cancellation.cpp)
+  ament_target_dependencies(test_action_cancellation behaviortree_ros2 nav2_msgs rclcpp_action)
+  ament_add_gtest(test_semantic_task_priority test/test_semantic_task_priority.cpp)
+  target_include_directories(test_semantic_task_priority PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/plugins/include)
+  ament_target_dependencies(test_semantic_task_priority behaviortree_cpp)
+  target_link_libraries(test_semantic_task_priority run_once_until_halted)
 endif()
 
 ament_auto_package(

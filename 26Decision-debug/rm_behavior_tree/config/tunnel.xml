@@ -5,18 +5,22 @@
     <ReactiveSequence>
       <SubGameStatus topic_name="/feedback_game_progress" game_progress="{game_progress}"/>
       <SubRobotStatus topic_name="/feedback_robot_hp" feedback_robot_hp="{feedback_robot_hp}"/>
+      <!-- Tunnel mode never owns wz. Repeated release also clears an override
+           left by a previously active spin behavior. -->
+      <SendSpin name="ReleaseSpinForTunnel" is_spin="false" topic_name="/cmd_vel_wz"/>
       <GetCurrentPose current_pose="{current_pose}"/>
       <GetCurrentRegion current_pose="{current_pose}" region="{current_region}"/>
       <WhileDoElse>
         <IsGameTime message="{game_progress}" game_progress="4"/>
+        <!-- Retreat is a persistent, higher-priority state. A successful
+             return-to-supply action must not fall through to go_center while
+             HP remains below the recover threshold. -->
         <WhileDoElse>
           <IsRetreat message="{feedback_robot_hp}" hp_threshold_retreat="110" hp_threshold_recover="400"/>
           <SubTree ID="LockedSemanticTask" task_type="return_supply"
                    target_region="red_supply_zone" target_pose_id="red_supply" _autoremap="true"/>
-          <Sequence>
-            <SubTree ID="LockedSemanticTask" task_type="go_center"
-                     target_region="center_zone" target_pose_id="center_staging" _autoremap="true"/>
-          </Sequence>
+          <SubTree ID="LockedSemanticTask" task_type="go_center"
+                   target_region="center_zone" target_pose_id="center_staging" _autoremap="true"/>
         </WhileDoElse>
         <AlwaysSuccess/>
       </WhileDoElse>
@@ -65,16 +69,16 @@
     <RetryUntilSuccessful num_attempts="2">
       <Sequence>
         <SelectController controller_id="FollowPath" topic_name="/controller_selector"/>
-        <!-- Preparation remains the only NavigateToPose goal that requires
-             heading alignment before entering the narrow approach. -->
-        <SelectController controller_id="general_goal_checker" topic_name="/goal_checker_selector"/>
+        <!-- Reach the handoff region while holding chassis heading. The
+             entry/tunnel paths own the explicit heading after this handoff. -->
+        <SelectController controller_id="position_goal_checker" topic_name="/goal_checker_selector"/>
         <Timeout msec="12000">
-          <SendGoal goal_pose="{tunnel_preparation}" heading_policy="explicit"
+          <SendGoal goal_pose="{tunnel_preparation}" heading_policy="hold"
                     action_name="/navigate_to_pose" move="false" length="1.0"/>
         </Timeout>
-        <Timeout msec="10000">
+        <Timeout msec="30000">
           <FollowTunnelPath path="{tunnel_entry_path}" action_name="/follow_path"
-                            controller_id="FollowPath" goal_checker_id="tunnel_handoff_checker"/>
+                            controller_id="TunnelController" goal_checker_id="tunnel_handoff_checker"/>
         </Timeout>
         <!-- From here traversal is committed: no global planner and no Spin. -->
         <Fallback>

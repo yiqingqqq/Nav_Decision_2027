@@ -10,11 +10,16 @@ BT::NodeStatus RunOnceUntilHalted::tick()
   }
 
   setStatus(BT::NodeStatus::RUNNING);
+  if (std::chrono::steady_clock::now() < retry_after_) return BT::NodeStatus::RUNNING;
   const auto child_status = child_node_->executeTick();
   if (BT::isStatusCompleted(child_status)) {
-    completed_ = true;
+    completed_ = child_status == BT::NodeStatus::SUCCESS;
     completed_status_ = child_status;
     resetChild();
+    if (child_status == BT::NodeStatus::FAILURE) {
+      retry_after_ = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+      return BT::NodeStatus::RUNNING;
+    }
   }
   return child_status;
 }
@@ -23,6 +28,7 @@ void RunOnceUntilHalted::halt()
 {
   completed_ = false;
   completed_status_ = BT::NodeStatus::IDLE;
+  retry_after_ = {};
   DecoratorNode::halt();
 }
 

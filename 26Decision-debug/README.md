@@ -28,12 +28,9 @@ chmod +x run.sh
 
 ### RMUL 2027 隧道模式
 
-隧道模式使用独立的 `tunnel.xml`，不会改变 `v0.xml`、`v1.xml` 或 `v2.xml`：
-
-```bash
 chmod +x run_tunnel.sh
 ./run_tunnel.sh
-```
+
 
 该模式当前仅使用红方坐标，不订阅或依赖裁判系统的 `/feedback_robot_id`。
 

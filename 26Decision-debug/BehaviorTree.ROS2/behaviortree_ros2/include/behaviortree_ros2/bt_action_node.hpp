@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <optional>
+#include <cstdint>
 #include <rclcpp/executors.hpp>
 #include <rclcpp/allocator/allocator_common.hpp>
 #include "behaviortree_cpp/action_node.h"
@@ -243,6 +244,7 @@ private:
   NodeStatus on_feedback_state_change_;
   bool goal_received_;
   WrappedResult result_;
+  uint64_t goal_generation_ = 0;
 
   bool createClient(const std::string& action_name);
 };
@@ -394,9 +396,11 @@ inline NodeStatus RosActionNode<T>::tick()
     setStatus(NodeStatus::RUNNING);
 
     goal_received_ = false;
+    goal_handle_.reset();
     future_goal_handle_ = {};
     on_feedback_state_change_ = NodeStatus::RUNNING;
     result_ = {};
+    const auto generation = ++goal_generation_;
 
     Goal goal;
 
@@ -409,8 +413,9 @@ inline NodeStatus RosActionNode<T>::tick()
 
     //--------------------
     goal_options.feedback_callback =
-        [this](typename GoalHandle::SharedPtr,
+        [this, generation](typename GoalHandle::SharedPtr,
                const std::shared_ptr<const Feedback> feedback) {
+          if(generation != goal_generation_) return;
           on_feedback_state_change_ = onFeedback(feedback);
           if(on_feedback_state_change_ == NodeStatus::IDLE)
           {
@@ -419,8 +424,9 @@ inline NodeStatus RosActionNode<T>::tick()
           emitWakeUpSignal();
         };
     //--------------------
-    goal_options.result_callback = [this](const WrappedResult& result) {
-      if(goal_handle_->get_goal_id() == result.goal_id)
+    goal_options.result_callback = [this, generation](const WrappedResult& result) {
+      if(generation == goal_generation_ && goal_handle_ &&
+         goal_handle_->get_goal_id() == result.goal_id)
       {
         RCLCPP_DEBUG(logger(), "result_callback");
         result_ = result;
@@ -429,9 +435,21 @@ inline NodeStatus RosActionNode<T>::tick()
     };
     //--------------------
     goal_options.goal_response_callback =
-        [this](typename GoalHandle::SharedPtr const future_handle) {
-          auto goal_handle_ = future_handle.get();
-          if(!goal_handle_)
+        [this, generation, weak_client = std::weak_ptr<ActionClient>(action_client)](
+          typename GoalHandle::SharedPtr const handle) {
+          if(generation != goal_generation_) {
+            // A response may arrive after a send/cancel timeout. Do not let an
+            // abandoned goal continue running or replace a newer goal handle.
+            if(handle) {
+              if(auto client = weak_client.lock()) {
+                try { client->async_cancel_goal(handle); }
+                catch(const rclcpp_action::exceptions::UnknownGoalHandleError &) {}
+              }
+            }
+            return;
+          }
+          goal_handle_ = handle;
+          if(!handle)
           {
             RCLCPP_ERROR(logger(), "Goal was rejected by server");
           }
@@ -525,11 +543,13 @@ inline void RosActionNode<T>::halt()
     cancelGoal();
     onHalt();
   }
+  resetStatus();
 }
 
 template <class T>
 inline void RosActionNode<T>::cancelGoal()
 {
+  if(!client_instance_) return;
   auto& executor = client_instance_->callback_executor;
   if(!goal_handle_)
   {
@@ -541,6 +561,8 @@ inline void RosActionNode<T>::cancelGoal()
       if(ret != rclcpp::FutureReturnCode::SUCCESS)
       {
         // In that case the goal was not accepted or timed out so probably we should do nothing.
+        ++goal_generation_;
+        future_goal_handle_ = {};
         return;
       }
       else
@@ -556,24 +578,36 @@ inline void RosActionNode<T>::cancelGoal()
     }
   }
 
+  if(!goal_handle_) return;  // The server may have rejected the pending request.
   auto& action_client = client_instance_->action_client;
 
-  auto future_result = action_client->async_get_result(goal_handle_);
-  auto future_cancel = action_client->async_cancel_goal(goal_handle_);
+  // A completed goal is already removed from rclcpp_action's client registry.
+  // Reusing that handle for get_result/cancel throws UnknownGoalHandleError.
+  try {
+    if(result_.code == rclcpp_action::ResultCode::UNKNOWN) {
+      auto future_result = action_client->async_get_result(goal_handle_);
+      auto future_cancel = action_client->async_cancel_goal(goal_handle_);
 
-  constexpr auto SUCCESS = rclcpp::FutureReturnCode::SUCCESS;
+      constexpr auto SUCCESS = rclcpp::FutureReturnCode::SUCCESS;
 
-  if(executor.spin_until_future_complete(future_cancel, server_timeout_) != SUCCESS)
-  {
-    RCLCPP_ERROR(logger(), "Failed to cancel action server for [%s]",
-                 action_name_.c_str());
+      if(executor.spin_until_future_complete(future_cancel, server_timeout_) != SUCCESS)
+      {
+        RCLCPP_ERROR(logger(), "Failed to cancel action server for [%s]",
+                     action_name_.c_str());
+      }
+
+      if(executor.spin_until_future_complete(future_result, server_timeout_) != SUCCESS)
+      {
+        RCLCPP_ERROR(logger(), "Failed to get result call failed :( for [%s]",
+                     action_name_.c_str());
+      }
+    }
+  } catch(const rclcpp_action::exceptions::UnknownGoalHandleError &) {
+    RCLCPP_DEBUG(logger(), "Goal already completed or forgotten during cancellation");
   }
-
-  if(executor.spin_until_future_complete(future_result, server_timeout_) != SUCCESS)
-  {
-    RCLCPP_ERROR(logger(), "Failed to get result call failed :( for [%s]",
-                 action_name_.c_str());
-  }
+  ++goal_generation_;
+  goal_handle_.reset();
+  future_goal_handle_ = {};
 }
 
 }  // namespace BT

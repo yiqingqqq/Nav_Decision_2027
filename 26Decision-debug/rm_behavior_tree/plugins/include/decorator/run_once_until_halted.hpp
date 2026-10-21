@@ -2,15 +2,16 @@
 #define RM_BEHAVIOR_TREE__PLUGINS__DECORATOR__RUN_ONCE_UNTIL_HALTED_HPP_
 
 #include <string>
+#include <chrono>
 
 #include "behaviortree_cpp/decorator_node.h"
 
 namespace rm_behavior_tree
 {
 
-// Runs a mission subtree once, then keeps returning its result. A halt from a
-// parent branch transition starts a new mission and allows the subtree to run
-// again (and therefore select a new tunnel direction).
+// Latches successful missions and retries failures after a short backoff.
+// A parent branch transition halts and unlocks the mission, allowing a fresh
+// route selection (and therefore a new tunnel direction).
 class RunOnceUntilHalted : public BT::DecoratorNode
 {
 public:
@@ -25,6 +26,7 @@ private:
 
   bool completed_{false};
   BT::NodeStatus completed_status_{BT::NodeStatus::IDLE};
+  std::chrono::steady_clock::time_point retry_after_{};
 };
 
 }  // namespace rm_behavior_tree

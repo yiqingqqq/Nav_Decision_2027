@@ -18,36 +18,28 @@
                     game_progress="4"/>
 
         <ReactiveSequence>
-          <RateController hz="10">
-            <IfThenElse>
-              <IsNearGoal name="CheckNearCenter"
-                          current_location="{current_location}"
-                          goal_pose="5.0;-3.0;0;0;0;0;1"
-                          distance_threshold="2.0"/>
-              <SendSpin name="SpinNear"
-                        is_spin="true"
-                        spin_velocity="4.5"
-                        topic_name="/cmd_vel_wz"/>
-              <SendSpin name="SpinFar"
-                        is_spin="false"
-                        topic_name="/cmd_vel_wz"/>
-            </IfThenElse>
-          </RateController>
-
           <WhileDoElse>
             <IsRetreat name="NeedRetreat"
                        message="{feedback_robot_hp}"
                        hp_threshold_retreat="110"
                        hp_threshold_recover="400"/>
 
-            <SendGoal name="Supply"
-                      goal_pose="-0.25;0.0;0;0;0;0;1"
-                      action_name="/navigate_to_pose"
-                      move="false"/>
+            <Sequence>
+              <SendSpin name="ReleaseSpinForRetreat"
+                        is_spin="false"
+                        topic_name="/cmd_vel_wz"/>
+              <SendGoal name="Supply"
+                        goal_pose="-0.25;0.0;0;0;0;0;1"
+                        action_name="/navigate_to_pose"
+                        move="false"/>
+            </Sequence>
 
             <ReactiveFallback>
               <Sequence>
                 <IsHPdeduction name="CheckDeduction" message="{feedback_robot_hp}"/>
+                  <SendSpin name="ReleaseSpinForBack"
+                            is_spin="false"
+                            topic_name="/cmd_vel_wz"/>
                   <SendGoal name="Back"
                             goal_pose="5.0;-4.0;0;0;0;0;1"
                             action_name="/navigate_to_pose"
@@ -70,6 +62,11 @@
                                 move="true"
                                 length="1.0"/>
                   </Fallback>
+                <!-- The navigation action must return SUCCESS before spin owns wz. -->
+                <SendSpin name="SpinAfterArrival"
+                          is_spin="true"
+                          spin_velocity="4.5"
+                          topic_name="/cmd_vel_wz"/>
               </Sequence>
             </ReactiveFallback>
             

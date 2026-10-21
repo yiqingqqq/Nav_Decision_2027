@@ -1,5 +1,5 @@
 #include "action/send_spin.hpp"
-#include "std_msgs/msg/float32.hpp"
+#include "std_msgs/msg/float32_multi_array.hpp"
 
 namespace rm_behavior_tree
 {
@@ -10,20 +10,16 @@ SendSpinAction::SendSpinAction(
 {
 }
 
-bool SendSpinAction::setMessage(std_msgs::msg::Float32 & msg)
+bool SendSpinAction::setMessage(std_msgs::msg::Float32MultiArray & msg)
 {
-  // 获取输入参数
-  bool is_spin = false;      // 是否转动
-  float spin_velocity = 0.5; // 转速 (rad/s)
+  bool is_spin = false;
+  float spin_velocity = 0.5;
   getInput("is_spin", is_spin);
   getInput("spin_velocity", spin_velocity);
 
-  // 根据 is_spin 决定是否转动
-  if (is_spin) {
-    msg.data = spin_velocity;
-  } else {
-    msg.data = 0.0;
-  }
+  // data[0] is explicit ownership. This distinguishes "hold wz=0" from
+  // "release wz back to Nav2".
+  msg.data = {is_spin ? 1.0F : 0.0F, is_spin ? spin_velocity : 0.0F};
 
   return true;
 }
